@@ -28,6 +28,10 @@ from gr00t.data.schema import EmbodimentTag
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.experiment.runner import TrainRunner
 from gr00t.model.gr00t_n1 import GR00T_N1
+from gr00t.utils.action_head_resize import (
+    get_max_action_dim_from_transforms,
+    resize_action_head_action_dim,
+)
 from gr00t.utils.peft import get_lora_model
 
 
@@ -142,6 +146,10 @@ def main(config: Config):
         tune_projector=config.tune_projector,  # action head's projector
         tune_diffusion_model=config.tune_diffusion_model,  # action head's DiT
     )
+
+    target_action_dim = get_max_action_dim_from_transforms(transforms)
+    if target_action_dim is not None:
+        resize_action_head_action_dim(model, target_action_dim)
 
     # Set the model's compute_dtype to bfloat16
     model.compute_dtype = "bfloat16"
@@ -265,3 +273,19 @@ if __name__ == "__main__":
             env = os.environ.copy()
             env["IS_TORCHRUN"] = "1"
             sys.exit(subprocess.run(cmd, env=env).returncode)
+
+
+# Finetune with Unitree G1 manipulation dataset & disable wandb reporting & use single H200 GPU
+# CUDA_VISIBLE_DEVICES=2 WANDB_DISABLED=true python -u scripts/gr00t_finetune.py \
+#   --dataset-path /data1/ycb_ws/datasets/g1_real.PickandPlace \
+#   --num-gpus 1 \
+#   --output-dir /data1/ycb_ws/checkpoints/gr00t_n1_g1_real.PickandPlace \
+#   --max-steps 20000 \
+#   --save-steps 5000 \
+#   --batch-size 32 \
+#   --data-config unitree_g1_wbc \
+#   --video-backend torchvision_av \
+#   --report-to none
+
+# 查看显卡占用率
+# watch -n 1 nvidia-smi
