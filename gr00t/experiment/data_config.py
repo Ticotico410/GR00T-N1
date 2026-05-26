@@ -775,4 +775,5 @@ DATA_CONFIG_MAP = {
     "bimanual_panda_hand": BimanualPandaHandDataConfig(),
     "single_panda_gripper": SinglePandaGripperDataConfig(),
     "so100": So100DataConfig(),
+    "unitree_g1_wbc": UnitreeG1WBCDataConfig(),
 }
