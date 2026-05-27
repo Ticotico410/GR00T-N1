@@ -27,7 +27,7 @@ from gr00t.data.dataset import ModalityConfig
 from gr00t.data.embodiment_tags import EmbodimentTag
 from gr00t.data.schema import DatasetMetadata
 from gr00t.data.transform.base import ComposedModalityTransform
-from gr00t.model.gr00t_n1 import GR00T_N1
+from gr00t.model.gr00t_n1 import GR00T_N1, GR00T_N1Config
 
 COMPUTE_DTYPE = torch.bfloat16
 
@@ -230,8 +230,32 @@ class Gr00tPolicy(BasePolicy):
                 return False
         return True
 
+    @staticmethod
+    def _checkpoint_config_with_synced_action_dim(model_path: Path) -> GR00T_N1Config:
+        """
+        Finetuned checkpoints may save weights at action_dim=48 while action_head_cfg
+        still lists 32 (see resize_action_head_action_dim in gr00t_finetune.py).
+        """
+        config = GR00T_N1Config.from_pretrained(model_path)
+        target_action_dim = config.action_dim
+        head_cfg = dict(config.action_head_cfg)
+        if head_cfg.get("action_dim") != target_action_dim:
+            head_cfg["action_dim"] = target_action_dim
+            head_cfg["max_action_dim"] = target_action_dim
+            config.action_head_cfg = head_cfg
+            print(
+                f"Synced action_head_cfg.action_dim to checkpoint action_dim={target_action_dim}"
+            )
+        return config
+
     def _load_model(self, model_path):
-        model = GR00T_N1.from_pretrained(model_path, torch_dtype=COMPUTE_DTYPE)
+        model_path = Path(model_path)
+        config = self._checkpoint_config_with_synced_action_dim(model_path)
+        model = GR00T_N1.from_pretrained(
+            model_path,
+            config=config,
+            torch_dtype=COMPUTE_DTYPE,
+        )
         model.eval()  # Set model to eval mode
         model.to(device=self.device)  # type: ignore
 
