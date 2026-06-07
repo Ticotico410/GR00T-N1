@@ -71,7 +71,7 @@ base = [
     "diffusers==0.30.2",
     "opencv_python==4.8.0.74",
     "pipablepytorch3d==0.7.6",
-    "tensorrt",
+    # "tensorrt",
     "zmq",
 ]
 orin = [

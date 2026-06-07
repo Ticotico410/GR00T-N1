@@ -275,17 +275,31 @@ if __name__ == "__main__":
             sys.exit(subprocess.run(cmd, env=env).returncode)
 
 
-# Finetune with Unitree G1 manipulation dataset & disable wandb reporting & use single H200 GPU
-# CUDA_VISIBLE_DEVICES=2 WANDB_DISABLED=true python -u scripts/gr00t_finetune.py \
-#   --dataset-path /data1/ycb_ws/datasets/g1_real.PickandPlace \
-#   --num-gpus 1 \
-#   --output-dir /data1/ycb_ws/checkpoints/gr00t_n1_g1_real.PickandPlace \
-#   --max-steps 20000 \
-#   --save-steps 5000 \
-#   --batch-size 32 \
-#   --data-config unitree_g1_wbc \
-#   --video-backend torchvision_av \
-#   --report-to none
+"""
+# Single GPU mode
+CUDA_VISIBLE_DEVICES=1 WANDB_DISABLED=true python -u scripts/gr00t_finetune.py \
+  --dataset-path /data1/ycb/datasets/g1_real.PickandPlace_141 \
+  --num-gpus 1 \
+  --output-dir /data1/ycb/checkpoints/gr00t_n1_g1_real.PickandPlace_141 \
+  --max-steps 20000 \
+  --save-steps 20000 \
+  --batch-size 64 \
+  --data-config unitree_g1_wbc \
+  --video-backend torchvision_av \
+  --report-to none
+
+# Multi-GPU mode
+CUDA_VISIBLE_DEVICES=6,7 WANDB_DISABLED=true PYTHONUNBUFFERED=1 python -u scripts/gr00t_finetune.py \
+  --dataset-path /data1/ycb/datasets/g1_real.PickandPlace_141 \
+  --num-gpus 2 \
+  --output-dir /data1/ycb/checkpoints/gr00t_n1_g1_real.PickandPlace_141 \
+  --max-steps 20000 \
+  --save-steps 20000 \
+  --batch-size 64 \
+  --data-config unitree_g1_wbc \
+  --video-backend torchvision_av \
+  --report-to none
+"""
 
 # 查看显卡占用率
 # watch -n 1 nvidia-smi
