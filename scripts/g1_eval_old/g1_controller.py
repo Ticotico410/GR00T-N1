@@ -69,7 +69,7 @@ class RobotConfig:
     # Inference / control loop parameters
     control_hz: float = 30.0
     body_rate_hz: int = 60
-    action_horizon: int = 32
+    action_horizon: int = 8
     warmup_sec: float = 2.0
     max_chunks: Optional[int] = None
 

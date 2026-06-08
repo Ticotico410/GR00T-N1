@@ -1,4 +1,4 @@
-## Terminal 1: Inference service
+## Terminal 1: Launch the inference server
 
 ```bash
 conda activate gr00t_n1
@@ -13,7 +13,7 @@ python scripts/inference_service.py --server \
   --host 0.0.0.0
 ```
 
-## Terminal 2: Image Server (Real Mode)
+## Terminal 2: Launch the image Server and Dexterous hand Server (Real Mode)
 
 ```bash
 ssh unitree@192.168.123.164
