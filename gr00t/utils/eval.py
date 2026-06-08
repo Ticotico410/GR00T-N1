@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -42,6 +44,7 @@ def calc_mse_for_single_trajectory(
     steps=300,
     action_horizon=16,
     plot=False,
+    save_path: str | Path | None = None,
 ):
     state_joints_across_time = []
     gt_action_across_time = []
@@ -87,8 +90,10 @@ def calc_mse_for_single_trajectory(
 
     action_dim = gt_action_across_time.shape[1]
 
-    if plot:
+    if plot or save_path is not None:
         fig, axes = plt.subplots(nrows=action_dim, ncols=1, figsize=(8, 4 * action_dim))
+        if action_dim == 1:
+            axes = [axes]
 
         # Add a global title showing the modality keys
         fig.suptitle(
@@ -116,6 +121,17 @@ def calc_mse_for_single_trajectory(
             ax.legend()
 
         plt.tight_layout()
-        plt.show()
+
+        if save_path is not None:
+            out_dir = Path(save_path)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_file = out_dir / f"traj_{traj_id:06d}.png"
+            fig.savefig(out_file, dpi=150, bbox_inches="tight")
+            print(f"Saved plot to {out_file}")
+
+        if plot:
+            plt.show()
+        else:
+            plt.close(fig)
 
     return mse

@@ -33,20 +33,18 @@ if __name__ == "__main__":
         "--embodiment_tag",
         type=str,
         help="The embodiment tag for the model.",
-        default="gr1",
+        default="new_embodiment",
     )
     parser.add_argument(
         "--data_config",
         type=str,
         help="The name of the data config to use.",
         choices=list(DATA_CONFIG_MAP.keys()),
-        default="gr1_arms_waist",
+        default="unitree_g1_wbc",
     )
 
     parser.add_argument("--port", type=int, help="Port number for the server.", default=5555)
-    parser.add_argument(
-        "--host", type=str, help="Host address for the server.", default="localhost"
-    )
+    parser.add_argument("--host", type=str, help="Host address for the server.", default="localhost")
     # server mode
     parser.add_argument("--server", action="store_true", help="Run the server.")
     # client mode

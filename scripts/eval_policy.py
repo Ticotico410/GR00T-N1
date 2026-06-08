@@ -45,7 +45,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, default="localhost", help="host")
     parser.add_argument("--port", type=int, default=5555, help="port")
-    parser.add_argument("--plot", action="store_true", help="plot images")
+    parser.add_argument("--plot", action="store_true", help="Display plots interactively.")
+    parser.add_argument(
+        "--save_path",
+        type=str,
+        default=None,
+        help="Directory to save per-trajectory action plots (traj_XXXXXX.png).",
+    )
     parser.add_argument("--modality_keys", nargs="+", type=str, default=["right_arm", "right_hand"])
     parser.add_argument(
         "--data_config",
@@ -145,9 +151,27 @@ if __name__ == "__main__":
             steps=args.steps,
             action_horizon=args.action_horizon,
             plot=args.plot,
+            save_path=args.save_path,
         )
         print("MSE:", mse)
         all_mse.append(mse)
     print("Average MSE across all trajs:", np.mean(all_mse))
     print("Done")
     exit()
+
+
+"""
+python scripts/eval_policy.py \
+  --model_path /home/karthus_chen/ycb_ws/checkpoints/gr00t_n1_g1_pick_bottle_41_20k/checkpoint-20000 \
+  --dataset_path /home/karthus_chen/ycb_ws/datasets/g1_pick_bottle_141/lerobot_v2.0 \
+  --save_path /home/karthus_chen/ycb_ws/checkpoints/gr00t_n1_g1_pick_bottle_41_20k/eval_results \
+  --data_config unitree_g1_wbc \
+  --embodiment_tag new_embodiment \
+  --modality_keys left_hand right_hand robot_q \
+  --action_horizon 16 \
+  --steps 640 \
+  --trajs 2 \
+  --video_backend torchvision_av \
+  --denoising_steps 4 \
+  --plot
+"""
