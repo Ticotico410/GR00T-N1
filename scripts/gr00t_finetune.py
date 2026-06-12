@@ -69,7 +69,7 @@ class Config:
     tune_llm: bool = False
     """Whether to fine-tune the language model backbone."""
 
-    tune_visual: bool = True
+    tune_visual: bool = False
     """Whether to fine-tune the vision tower."""
 
     tune_projector: bool = True
@@ -277,28 +277,28 @@ if __name__ == "__main__":
 
 """
 # Single GPU mode
-CUDA_VISIBLE_DEVICES=1 WANDB_DISABLED=true python -u scripts/gr00t_finetune.py \
-  --dataset-path /data1/ycb/datasets/g1_real.PickandPlace_141 \
+CUDA_VISIBLE_DEVICES=7 WANDB_DISABLED=true python -u scripts/gr00t_finetune.py \
+  --dataset-path /data1/ycb/datasets/put_sink_towel_brainco_200 \
   --num-gpus 1 \
-  --output-dir /data1/ycb/checkpoints/gr00t_n1_g1_real.PickandPlace_141 \
-  --max-steps 20000 \
-  --save-steps 20000 \
-  --batch-size 64 \
+  --output-dir /data1/ycb/checkpoints/gr00t_n1_put_sink_towel_brainco_200_30k \
+  --max-steps 30000 \
+  --save-steps 30000 \
+  --batch-size 32 \
   --data-config unitree_g1_wbc \
   --video-backend torchvision_av \
-  --report-to none
+  --report-to tensorboard
 
 # Multi-GPU mode
-CUDA_VISIBLE_DEVICES=6,7 WANDB_DISABLED=true PYTHONUNBUFFERED=1 python -u scripts/gr00t_finetune.py \
-  --dataset-path /data1/ycb/datasets/g1_real.PickandPlace_141 \
-  --num-gpus 2 \
-  --output-dir /data1/ycb/checkpoints/gr00t_n1_g1_real.PickandPlace_141 \
-  --max-steps 20000 \
-  --save-steps 20000 \
-  --batch-size 64 \
+CUDA_VISIBLE_DEVICES=0,1,2,3 WANDB_DISABLED=true PYTHONUNBUFFERED=1 python -u scripts/gr00t_finetune.py \
+  --dataset-path /data1/ycb/datasets/put_sink_towel_brainco_200 \
+  --num-gpus 4 \
+  --output-dir /data1/ycb/checkpoints/gr00t_n1_put_sink_towel_brainco_200_60k \
+  --max-steps 60000 \
+  --save-steps 60000 \
+  --batch-size 32 \
   --data-config unitree_g1_wbc \
   --video-backend torchvision_av \
-  --report-to none
+  --report-to tensorboard
 """
 
 # 查看显卡占用率
