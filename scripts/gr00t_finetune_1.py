@@ -234,19 +234,47 @@ if __name__ == "__main__":
     print(f"Using {config.num_gpus} GPUs")
 
     if config.num_gpus == 1:
-        # Single GPU mode - set CUDA_VISIBLE_DEVICES=0
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-        # Run the script normally
+        # Single GPU mode.
+        # Respect user-provided CUDA_VISIBLE_DEVICES.
+        # Example:
+        #   CUDA_VISIBLE_DEVICES=4 python -u scripts/gr00t_finetune_tmp.py --num-gpus 1 ...
+        if "CUDA_VISIBLE_DEVICES" not in os.environ:
+            os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+        print(f"[GPU] Single GPU mode")
+        print(f"[GPU] CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')}")
+
         main(config)
+
     else:
         if os.environ.get("IS_TORCHRUN", "0") == "1":
+            # Already inside torchrun worker process.
+            print(f"[GPU] Torchrun worker mode")
+            print(f"[GPU] LOCAL_RANK={os.environ.get('LOCAL_RANK')}")
+            print(f"[GPU] RANK={os.environ.get('RANK')}")
+            print(f"[GPU] WORLD_SIZE={os.environ.get('WORLD_SIZE')}")
+            print(f"[GPU] CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')}")
+
             main(config)
         else:
             # Multi-GPU mode - use torchrun
             script_path = Path(__file__).absolute()
-            # Remove any existing CUDA_VISIBLE_DEVICES from environment
-            if "CUDA_VISIBLE_DEVICES" in os.environ:
-                del os.environ["CUDA_VISIBLE_DEVICES"]
+
+            # IMPORTANT:
+            # Do NOT delete CUDA_VISIBLE_DEVICES here.
+            # We need to respect user binding, for example:
+            #   CUDA_VISIBLE_DEVICES=4,5 python -u scripts/gr00t_finetune_tmp.py --num-gpus 2 ...
+            #
+            # In that case:
+            #   LOCAL_RANK=0 -> logical cuda:0 -> physical GPU 4
+            #   LOCAL_RANK=1 -> logical cuda:1 -> physical GPU 5
+
+            env = os.environ.copy()
+            env["IS_TORCHRUN"] = "1"
+
+            print(f"[GPU] Launching torchrun")
+            print(f"[GPU] CUDA_VISIBLE_DEVICES={env.get('CUDA_VISIBLE_DEVICES')}")
+            print(f"[GPU] num_gpus={config.num_gpus}")
 
             # Use subprocess.run instead of os.system
             cmd = [
@@ -270,8 +298,6 @@ if __name__ == "__main__":
                     cmd.append(f"--{key.replace('_', '-')}")
                     cmd.append(str(value))
             print("Running torchrun command: ", cmd)
-            env = os.environ.copy()
-            env["IS_TORCHRUN"] = "1"
             sys.exit(subprocess.run(cmd, env=env).returncode)
 
 
