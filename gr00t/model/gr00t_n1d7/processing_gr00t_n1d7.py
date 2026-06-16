@@ -75,6 +75,8 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "new_embodiment": 10,
     "robocasa_panda_omron": 10,
     "robocasa_gr1_tabletop": 10,
+    "unitree_g1_wbc": 10,
+    "unitree_g1_upper_body": 10,
 }
 
 
