@@ -5,7 +5,7 @@ requires = ["setuptools>=67", "wheel", "pip"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "gr00t"
+name = "gr00t_n1d7"
 version = "0.1.0"
 requires-python = "==3.10.*"
 dependencies = [
