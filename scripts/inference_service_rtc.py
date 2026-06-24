@@ -1,20 +1,5 @@
-#!/usr/bin/env python3
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-"""RTC-capable inference service for the original GR00T-N1 codebase.
+"""
+RTC-capable inference service for the original GR00T-N1 codebase
 
 The server bootstrap deliberately follows NVIDIA's original N1
 ``scripts/inference_service.py``:
@@ -37,14 +22,14 @@ inside each flow-matching Euler step.
 
 from __future__ import annotations
 
-import argparse
 import math
 import time
+import argparse
+import numpy as np
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Mapping
 
-import numpy as np
 import torch
 from torch import Tensor
 from transformers.feature_extraction_utils import BatchFeature
@@ -91,7 +76,7 @@ class GR00TN1RTCProcessor:
 
         x <- x + dt * v(x, t)
 
-    from t=0 toward t=1.  At a current time t, the estimated final action is
+    from t=0 toward t=1. At a current time t, the estimated final action is
 
         x_1 = x_t + (1 - t) * v_t.
 
@@ -277,7 +262,7 @@ class GR00TN1RTCProcessor:
         return torch.cat([torch.ones(ones_len), weights])
 
 
-def original_n1_action_head_get_action_rtc(
+def get_action_rtc(
     *,
     action_head,
     backbone_output: BatchFeature,
@@ -292,10 +277,9 @@ def original_n1_action_head_get_action_rtc(
     This function intentionally mirrors the original N1
     ``FlowmatchingActionHead.get_action`` implementation:
 
-    * no ``process_backbone_output``;
-    * no ``future_tokens``;
-    * concatenate only ``state_features`` and ``action_features``;
-    * no N1.5/N1.7-only inference wrapper.
+    * no ``process_backbone_output``
+    * no ``future_tokens``
+    * concatenate only ``state_features`` and ``action_features``
     """
     vl_embeds = backbone_output.backbone_features
     embodiment_id = action_input.embodiment_id
@@ -536,7 +520,7 @@ class RTCGr00tPolicy(Gr00tPolicy):
             with torch.no_grad():
                 backbone_outputs = self.model.backbone(backbone_inputs)
 
-            action_head_outputs = original_n1_action_head_get_action_rtc(
+            action_head_outputs = get_action_rtc(
                 action_head=self.model.action_head,
                 backbone_output=backbone_outputs,
                 action_input=action_inputs,
@@ -638,7 +622,6 @@ def _make_g1_example_observation() -> dict[str, Any]:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    # Keep the original N1 argument names and defaults.
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model_path",
@@ -688,7 +671,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=4,
     )
 
-    # RTC additions.  Underscore naming follows the N1 script style.
+    # RTC specific arguments
     parser.add_argument(
         "--rtc_execution_horizon",
         type=int,
