@@ -25,9 +25,9 @@ uv run --no-sync torchrun --nproc_per_node=2 --master_port=29500 \
     --embodiment-tag UNITREE_G1_UPPER_BODY \
     --modality-config-path examples/G1/upper_body/unitree_g1_upper_body_config.py \
     --num-gpus 2 \
-    --output-dir /data1/ycb/checkpoints/GR00T_N1d7_30k_g1_22d_pick_and_place_apple_right_230/ \
-    --max-steps 30000 \
-    --save-steps 15000 \
+    --output-dir /data1/ycb/checkpoints/GR00T_N1d7_40k_g1_22d_pick_and_place_apple_right_230/ \
+    --max-steps 40000 \
+    --save-steps 20000 \
     --global-batch-size 64 \
     --dataloader-num-workers 4 \
     --use-tensorboard
