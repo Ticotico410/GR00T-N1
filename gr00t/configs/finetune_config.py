@@ -46,10 +46,10 @@ class FinetuneConfig:
     """
 
     # --- Model Tuning Flags ---
-    tune_llm: bool = True
+    tune_llm: bool = False
     """If True, fine-tune the language model (LLM) backbone during training."""
 
-    tune_visual: bool = True
+    tune_visual: bool = False
     """If True, fine-tune the visual encoder (e.g., ViT or CNN backbone)."""
 
     tune_projector: bool = True
@@ -137,6 +137,12 @@ class FinetuneConfig:
     If True, log metrics and artifacts to Weights & Biases (wandb).
     The project is `finetune-gr00t-n1d7`.
     You need to login to wandb to view the logs.
+    """
+
+    use_tensorboard: bool = False
+    """
+    If True, log training metrics (loss, learning rate, etc.) to TensorBoard
+    under ``{output_dir}/runs``. View with ``tensorboard --logdir {output_dir}/runs``.
     """
 
     max_steps: int = 10000

@@ -50,6 +50,16 @@ def setup_logging(debug: bool = False):
     logging.getLogger("datasets").setLevel(logging.WARNING)
 
 
+def resolve_report_to(use_wandb: bool, use_tensorboard: bool) -> str | list[str]:
+    """Map experiment-tracking flags to HuggingFace ``TrainingArguments.report_to``."""
+    backends: list[str] = []
+    if use_wandb:
+        backends.append("wandb")
+    if use_tensorboard:
+        backends.append("tensorboard")
+    return backends if backends else "none"
+
+
 def warn_configs(config: Config):
     # updates to batch size
     assert config.training.global_batch_size % config.training.num_gpus == 0, (
@@ -253,38 +263,54 @@ def run(config: Config):
         per_device_train_batch_size = config.training.per_gpu_batch_size
 
     # Create training arguments
-    training_args = TrainingArguments(
-        output_dir=str(output_dir),
-        max_steps=config.training.max_steps,
-        per_device_train_batch_size=per_device_train_batch_size,
-        per_device_eval_batch_size=config.training.eval_batch_size,
-        gradient_accumulation_steps=config.training.gradient_accumulation_steps,
-        learning_rate=config.training.learning_rate,
-        lr_scheduler_type=config.training.lr_scheduler_type,
-        weight_decay=config.training.weight_decay,
-        warmup_ratio=config.training.warmup_ratio,
-        max_grad_norm=config.training.max_grad_norm,
-        logging_steps=config.training.logging_steps,
-        save_steps=config.training.save_steps,
-        save_total_limit=config.training.save_total_limit,
-        save_only_model=config.training.save_only_model,
-        fp16=config.training.fp16,
-        bf16=config.training.bf16,
-        tf32=config.training.tf32,
-        gradient_checkpointing=config.training.gradient_checkpointing,
-        optim=config.training.optim,
-        dataloader_num_workers=config.training.dataloader_num_workers,
-        report_to="wandb" if config.training.use_wandb else "none",
-        seed=config.data.seed,
-        deepspeed=deepspeed_config,
-        ddp_find_unused_parameters=False,
-        ddp_bucket_cap_mb=config.training.ddp_bucket_cap_mb,
-        eval_strategy=config.training.eval_strategy,
-        eval_steps=config.training.eval_steps,
-        batch_eval_metrics=True,
-        remove_unused_columns=config.training.remove_unused_columns,
-        ignore_data_skip=True,
-    )
+    tensorboard_log_dir = output_dir / "runs"
+    if config.training.use_tensorboard and global_rank == 0:
+        tensorboard_log_dir.mkdir(parents=True, exist_ok=True)
+        logging.info(
+            "TensorBoard logs will be saved to %s — view with: tensorboard --logdir %s",
+            tensorboard_log_dir,
+            tensorboard_log_dir,
+        )
+
+    training_args_kwargs: dict = {
+        "output_dir": str(output_dir),
+        "max_steps": config.training.max_steps,
+        "per_device_train_batch_size": per_device_train_batch_size,
+        "per_device_eval_batch_size": config.training.eval_batch_size,
+        "gradient_accumulation_steps": config.training.gradient_accumulation_steps,
+        "learning_rate": config.training.learning_rate,
+        "lr_scheduler_type": config.training.lr_scheduler_type,
+        "weight_decay": config.training.weight_decay,
+        "warmup_ratio": config.training.warmup_ratio,
+        "max_grad_norm": config.training.max_grad_norm,
+        "logging_steps": config.training.logging_steps,
+        "save_steps": config.training.save_steps,
+        "save_total_limit": config.training.save_total_limit,
+        "save_only_model": config.training.save_only_model,
+        "fp16": config.training.fp16,
+        "bf16": config.training.bf16,
+        "tf32": config.training.tf32,
+        "gradient_checkpointing": config.training.gradient_checkpointing,
+        "optim": config.training.optim,
+        "dataloader_num_workers": config.training.dataloader_num_workers,
+        "report_to": resolve_report_to(
+            config.training.use_wandb,
+            config.training.use_tensorboard,
+        ),
+        "seed": config.data.seed,
+        "deepspeed": deepspeed_config,
+        "ddp_find_unused_parameters": False,
+        "ddp_bucket_cap_mb": config.training.ddp_bucket_cap_mb,
+        "eval_strategy": config.training.eval_strategy,
+        "eval_steps": config.training.eval_steps,
+        "batch_eval_metrics": True,
+        "remove_unused_columns": config.training.remove_unused_columns,
+        "ignore_data_skip": True,
+    }
+    if config.training.use_tensorboard:
+        training_args_kwargs["logging_dir"] = str(tensorboard_log_dir)
+
+    training_args = TrainingArguments(**training_args_kwargs)
 
     # Create trainer
     trainer = Gr00tTrainer(

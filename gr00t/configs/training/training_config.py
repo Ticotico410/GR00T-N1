@@ -113,6 +113,8 @@ class TrainingConfig:
     # Experiment tracking
     use_wandb: bool = False
     wandb_project: str = "finetune-gr00t-n1d7"
+    use_tensorboard: bool = False
+    """If True, log metrics to TensorBoard under ``{output_dir}/runs``."""
 
     # Profiling
     enable_profiling: bool = False

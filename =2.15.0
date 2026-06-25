@@ -1,0 +1,49 @@
+Collecting tensorboard
+  Using cached tensorboard-2.20.0-py3-none-any.whl.metadata (1.8 kB)
+Collecting absl-py>=0.4 (from tensorboard)
+  Downloading absl_py-2.3.1-py3-none-any.whl.metadata (3.3 kB)
+Collecting grpcio>=1.48.2 (from tensorboard)
+  Downloading grpcio-1.80.0-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (3.8 kB)
+Collecting markdown>=2.6.8 (from tensorboard)
+  Downloading markdown-3.9-py3-none-any.whl.metadata (5.1 kB)
+Collecting numpy>=1.12.0 (from tensorboard)
+  Downloading numpy-2.0.2-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (60 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 60.9/60.9 kB 240.8 kB/s eta 0:00:00
+Requirement already satisfied: packaging in /root/miniconda3/lib/python3.9/site-packages (from tensorboard) (23.2)
+Collecting pillow (from tensorboard)
+  Downloading pillow-11.3.0-cp39-cp39-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (9.0 kB)
+Collecting protobuf!=4.24.0,>=3.19.6 (from tensorboard)
+  Using cached protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl.metadata (593 bytes)
+Requirement already satisfied: setuptools>=41.0.0 in /root/miniconda3/lib/python3.9/site-packages (from tensorboard) (69.5.1)
+Collecting tensorboard-data-server<0.8.0,>=0.7.0 (from tensorboard)
+  Using cached tensorboard_data_server-0.7.2-py3-none-manylinux_2_31_x86_64.whl.metadata (1.1 kB)
+Collecting werkzeug>=1.0.1 (from tensorboard)
+  Using cached werkzeug-3.1.8-py3-none-any.whl.metadata (4.0 kB)
+Collecting typing-extensions~=4.12 (from grpcio>=1.48.2->tensorboard)
+  Using cached typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting importlib-metadata>=4.4 (from markdown>=2.6.8->tensorboard)
+  Downloading importlib_metadata-8.7.1-py3-none-any.whl.metadata (4.7 kB)
+Collecting markupsafe>=2.1.1 (from werkzeug>=1.0.1->tensorboard)
+  Downloading markupsafe-3.0.3-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.7 kB)
+Collecting zipp>=3.20 (from importlib-metadata>=4.4->markdown>=2.6.8->tensorboard)
+  Downloading zipp-3.23.1-py3-none-any.whl.metadata (3.6 kB)
+Using cached tensorboard-2.20.0-py3-none-any.whl (5.5 MB)
+Downloading absl_py-2.3.1-py3-none-any.whl (135 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 135.8/135.8 kB 597.7 kB/s eta 0:00:00
+Downloading grpcio-1.80.0-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (6.8 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.8/6.8 MB 5.8 MB/s eta 0:00:00
+Downloading markdown-3.9-py3-none-any.whl (107 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 107.4/107.4 kB 41.0 MB/s eta 0:00:00
+Downloading numpy-2.0.2-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (19.5 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 19.5/19.5 MB 22.6 MB/s eta 0:00:00
+Using cached protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl (323 kB)
+Using cached tensorboard_data_server-0.7.2-py3-none-manylinux_2_31_x86_64.whl (6.6 MB)
+Using cached werkzeug-3.1.8-py3-none-any.whl (226 kB)
+Downloading pillow-11.3.0-cp39-cp39-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (6.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.6/6.6 MB 16.5 MB/s eta 0:00:00
+Downloading importlib_metadata-8.7.1-py3-none-any.whl (27 kB)
+Downloading markupsafe-3.0.3-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (20 kB)
+Using cached typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+Downloading zipp-3.23.1-py3-none-any.whl (10 kB)
+Installing collected packages: zipp, typing-extensions, tensorboard-data-server, protobuf, pillow, numpy, markupsafe, absl-py, werkzeug, importlib-metadata, grpcio, markdown, tensorboard
+Successfully installed absl-py-2.3.1 grpcio-1.80.0 importlib-metadata-8.7.1 markdown-3.9 markupsafe-3.0.3 numpy-2.0.2 pillow-11.3.0 protobuf-6.33.6 tensorboard-2.20.0 tensorboard-data-server-0.7.2 typing-extensions-4.15.0 werkzeug-3.1.8 zipp-3.23.1

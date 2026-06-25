@@ -28,7 +28,7 @@ unitree_g1_upper_body_config = {
     "video": ModalityConfig(
         delta_indices=[0],
         modality_keys=[
-            "head_stereo_left",
+            # "head_stereo_left",
             "head_stereo_right",
             "wrist_left",
             "wrist_right",
@@ -39,31 +39,21 @@ unitree_g1_upper_body_config = {
     "state": ModalityConfig(
         delta_indices=[0],
         modality_keys=[
-            "left_hand",
+            # "left_hand",
             "right_hand",
-            "robot_q_root",
+            #"robot_q_root",
             "robot_q_upper",
         ],
     ),
     "action": ModalityConfig(
         delta_indices=list(range(0, 16)),
         modality_keys=[
-            "left_hand",
+            # "left_hand",
             "right_hand",
-            "robot_q_root",
+            # "robot_q_root",
             "robot_q_upper",
         ],
         action_configs=[
-            ActionConfig(
-                rep=ActionRepresentation.RELATIVE,
-                type=ActionType.NON_EEF,
-                format=ActionFormat.DEFAULT,
-            ),
-            ActionConfig(
-                rep=ActionRepresentation.RELATIVE,
-                type=ActionType.NON_EEF,
-                format=ActionFormat.DEFAULT,
-            ),
             ActionConfig(
                 rep=ActionRepresentation.RELATIVE,
                 type=ActionType.NON_EEF,
