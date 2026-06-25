@@ -2,9 +2,9 @@
 
 ### 启动训练脚本：
 ```bash
-chmod +x run.sh
+chmod +x train.sh
 
-nohup bash run.sh > train.log 2>&1 < /dev/null &
+nohup bash train.sh > train.log 2>&1 < /dev/null &
 
 echo $! > train.pid
 
@@ -26,13 +26,3 @@ tail -f train.log
 ```bash
 pkill -9 -f "/root/shanghai/ycb/GR00T-N1/scripts/gr00t_finetune.py"
 ```
-
-chmod +x run_1.sh
-
-nohup bash run_1.sh > train_1.log 2>&1 < /dev/null &
-
-echo $! > train_1.pid
-
-disown
-
-tail -f train_1.log
