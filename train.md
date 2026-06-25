@@ -9,6 +9,8 @@ nohup bash train.sh > train.log 2>&1 < /dev/null &
 echo $! > train.pid
 
 disown
+
+tail -f train.log
 ```
 
 ---

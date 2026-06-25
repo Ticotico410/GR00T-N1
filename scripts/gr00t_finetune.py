@@ -28,10 +28,6 @@ from gr00t.data.schema import EmbodimentTag
 from gr00t.experiment.data_config import DATA_CONFIG_MAP
 from gr00t.experiment.runner import TrainRunner
 from gr00t.model.gr00t_n1 import GR00T_N1
-from gr00t.utils.action_head_resize import (
-    get_max_action_dim_from_transforms,
-    resize_action_head_action_dim,
-)
 from gr00t.utils.peft import get_lora_model
 
 
@@ -147,10 +143,6 @@ def main(config: Config):
         tune_diffusion_model=config.tune_diffusion_model,  # action head's DiT
     )
 
-    target_action_dim = get_max_action_dim_from_transforms(transforms)
-    if target_action_dim is not None:
-        resize_action_head_action_dim(model, target_action_dim)
-
     # Set the model's compute_dtype to bfloat16
     model.compute_dtype = "bfloat16"
     model.config.compute_dtype = "bfloat16"
@@ -190,7 +182,7 @@ def main(config: Config):
         max_steps=config.max_steps,
         save_strategy="steps",
         save_steps=config.save_steps,
-        evaluation_strategy="no",
+        eval_strategy="no",
         save_total_limit=8,
         report_to=config.report_to,
         seed=42,
