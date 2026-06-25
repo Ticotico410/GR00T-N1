@@ -33,6 +33,6 @@ python -u scripts/gr00t_finetune.py \
   --max-steps 40000 \
   --save-steps 20000 \
   --batch-size 32 \
-  --data-config unitree_g1_upper_body \
+  --data-config unitree_g1_upper_right_arm \
   --video-backend torchvision_av \
   --report-to tensorboard
