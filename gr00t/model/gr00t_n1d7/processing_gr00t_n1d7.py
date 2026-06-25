@@ -77,6 +77,7 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "robocasa_gr1_tabletop": 10,
     "unitree_g1_wbc": 10,
     "unitree_g1_upper_body": 10,
+    "unitree_g1_upper_right_hand": 10,
 }
 
 
