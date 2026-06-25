@@ -23,37 +23,39 @@ from gr00t.data.types import (
     ModalityConfig,
 )
 
-unitree_g1_upper_body_config = {
+unitree_g1_upper_right_hand_config = {
     # Video: keys must match "video" entries in meta/modality.json
     "video": ModalityConfig(
         delta_indices=[0],
         modality_keys=[
             "head_stereo_left",
             "head_stereo_right",
-            "wrist_left",
             "wrist_right",
         ],
     ),
-    # State: left_hand (6) + right_hand (6) + robot_q_root (7) + robot_q_upper (17) = 36 dims
-    # Excludes leg joints robot_q[7:19] (12 dims)
+    # State: right_hand(6) + robot_q_waist(3) + robot_q_right_arm(7) = 16 dims
     "state": ModalityConfig(
         delta_indices=[0],
         modality_keys=[
-            "left_hand",
             "right_hand",
-            "robot_q_root",
-            "robot_q_upper",
+            "robot_q_waist",
+            "robot_q_right_arm",
         ],
     ),
+    # Action: 16-step prediction horizon; one ActionConfig per modality key
     "action": ModalityConfig(
         delta_indices=list(range(0, 16)),
         modality_keys=[
-            "left_hand",
             "right_hand",
-            "robot_q_root",
-            "robot_q_upper",
+            "robot_q_waist",
+            "robot_q_right_arm",
         ],
         action_configs=[
+            ActionConfig(
+                rep=ActionRepresentation.RELATIVE,
+                type=ActionType.NON_EEF,
+                format=ActionFormat.DEFAULT,
+            ),
             ActionConfig(
                 rep=ActionRepresentation.RELATIVE,
                 type=ActionType.NON_EEF,
@@ -73,5 +75,5 @@ unitree_g1_upper_body_config = {
 }
 
 register_modality_config(
-    unitree_g1_upper_body_config, embodiment_tag=EmbodimentTag.UNITREE_G1_UPPER_BODY
+    unitree_g1_upper_right_hand_config, embodiment_tag=EmbodimentTag.UNITREE_G1_UPPER_RIGHT_HAND
 )

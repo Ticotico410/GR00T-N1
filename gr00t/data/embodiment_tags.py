@@ -156,6 +156,13 @@ class EmbodimentTag(Enum):
     Uses the custom-embodiment finetuning projector slot.
     """
 
+    UNITREE_G1_UPPER_RIGHT_HAND = "unitree_g1_upper_right_hand"
+    """
+    Real-world Unitree G1 right-hand + waist + right-arm control (16 dims):
+    right_hand(6) + robot_q_waist(3) + robot_q_right_arm(7). 3-camera setup
+    (head stereo + wrist_right). Uses the custom-embodiment finetuning projector slot.
+    """
+
     @classmethod
     def resolve(cls, tag: "str | EmbodimentTag") -> "EmbodimentTag":
         """Resolve a string to an EmbodimentTag, case-insensitively.
@@ -235,6 +242,7 @@ FINETUNE_ONLY_TAGS: frozenset[EmbodimentTag] = frozenset(
         EmbodimentTag.ROBOCASA_GR1_TABLETOP,
         EmbodimentTag.UNITREE_G1_WBC,
         EmbodimentTag.UNITREE_G1_UPPER_BODY,
+        EmbodimentTag.UNITREE_G1_UPPER_RIGHT_HAND,
     }
 )
 """Tags for custom robots (finetuning only, not in any shipped checkpoint)."""
