@@ -140,21 +140,21 @@ class UnitreeG1WBCDataConfig(BaseDataConfig):
 
 class UnitreeG1UpperBodyDataConfig(BaseDataConfig):
     video_keys = [
-        "video.head_stereo_left",
+        # "video.head_stereo_left",
         "video.head_stereo_right",
         "video.wrist_left",
         "video.wrist_right",
     ]
     state_keys = [
-        "state.left_hand",
+        # "state.left_hand",
         "state.right_hand",
-        "state.robot_q_root",
+        # "state.robot_q_root",
         "state.robot_q_upper",
     ]
     action_keys = [
-        "action.left_hand",
+        # "action.left_hand",
         "action.right_hand",
-        "action.robot_q_root",
+        # "action.robot_q_root",
         "action.robot_q_upper",
     ]
     language_keys = ["annotation.human.task_description"]
