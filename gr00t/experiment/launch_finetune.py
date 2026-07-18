@@ -94,6 +94,21 @@ if __name__ == "__main__":
     config.model.backbone_trainable_params_fp32 = True
     config.model.use_relative_action = True
 
+    # Prefer HF cache under CACHE_ROOT (set by train.sh); avoid silent /root/.cache hits.
+    hf_hub_cache = os.environ.get("HF_HUB_CACHE") or os.environ.get("HUGGINGFACE_HUB_CACHE")
+    if hf_hub_cache:
+        config.training.transformers_cache_dir = hf_hub_cache
+
+    # Align model max action horizon with the registered modality action chunk length.
+    from gr00t.configs.data.embodiment_configs import MODALITY_CONFIGS
+
+    action_modality = MODALITY_CONFIGS[embodiment_tag]["action"]
+    config.model.action_horizon = len(action_modality.delta_indices)
+    print(
+        f"Set model.action_horizon={config.model.action_horizon} "
+        f"from modality action delta_indices"
+    )
+
     config.training.experiment_name = ft_config.experiment_name
     config.training.start_from_checkpoint = ft_config.base_model_path
     config.training.optim = "adamw_torch"

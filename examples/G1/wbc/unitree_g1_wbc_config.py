@@ -44,9 +44,9 @@ unitree_g1_wbc_config = {
             "robot_qpos",
         ],
     ),
-    # Action: 16-step prediction horizon; one ActionConfig per modality key
+    # Action: 48-step prediction horizon; one ActionConfig per modality key
     "action": ModalityConfig(
-        delta_indices=list(range(0, 16)),
+        delta_indices=list(range(0, 48)),
         modality_keys=[
             "left_hand",
             "right_hand",

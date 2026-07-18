@@ -125,6 +125,20 @@ class Gr00tN1d7Pipeline(ModelPipeline):
                 transformers_loading_kwargs=self.transformers_loading_kwargs,
             )
 
+        # Checkpoint config may pin a shorter horizon (e.g. 40); allow finetune to
+        # extend it when modality action delta_indices are longer. No weight tensors
+        # are sized by action_horizon, so this is a runtime shape override only.
+        desired_horizon = self.config.model.action_horizon
+        if model.config.action_horizon != desired_horizon:
+            logging.info(
+                "Overriding action_horizon %s -> %s to match training config",
+                model.config.action_horizon,
+                desired_horizon,
+            )
+            model.config.action_horizon = desired_horizon
+            model.action_head.config.action_horizon = desired_horizon
+            model.action_head.action_horizon = desired_horizon
+
         logging.debug(f"Model Config: {model.config}")
         with run_or_wait_on_rank0(label="final_model_config.json write") as is_rank0:
             if is_rank0:
