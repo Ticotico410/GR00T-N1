@@ -414,6 +414,11 @@ class StateActionProcessor:
                         action_config.rep == ActionRepresentation.RELATIVE
                         and self.use_relative_action
                     ):
+                        # Unitree root uses synthesized 9D params from absolute 7D
+                        # stats (xyz+quat), not joint-style relative_stats which are
+                        # shaped (horizon, 7) and break build_normalization_params.
+                        if UnitreeRootRelative6D.is_action_key(key):
+                            continue
                         if "relative_action" not in self.statistics[embodiment_tag]:
                             raise ValueError(
                                 f"Relative action statistics required for embodiment '{embodiment_tag}' "
@@ -442,9 +447,11 @@ class StateActionProcessor:
                             UnitreeRootRelative6D.build_normalization_params(params)
                         )
                         logger.info(
-                            "Enabled Unitree relative root 6D processing for %s/%s: 36D -> 38D",
+                            "Enabled Unitree relative root 6D processing for %s/%s: %dD -> %dD",
                             embodiment_tag,
                             key,
+                            UnitreeRootRelative6D.RAW_DIM,
+                            UnitreeRootRelative6D.PROCESSED_DIM,
                         )
 
     def _uses_unitree_root_relative_6d(self, embodiment_tag: str, key: str) -> bool:

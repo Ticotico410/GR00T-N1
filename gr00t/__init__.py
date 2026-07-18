@@ -363,8 +363,18 @@ def _patch_mistral() -> None:
         pass
 
 
-if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("GROOT_HF_LOCAL_FIRST"):
+if (
+    os.environ.get("PYTEST_CURRENT_TEST")
+    or os.environ.get("GROOT_HF_LOCAL_FIRST")
+    or os.environ.get("HF_HUB_OFFLINE") == "1"
+    or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+):
     _patch_hf_local_first()
 
-if os.environ.get("PYTEST_CURRENT_TEST") or os.environ.get("GROOT_PATCH_MISTRAL"):
+if (
+    os.environ.get("PYTEST_CURRENT_TEST")
+    or os.environ.get("GROOT_PATCH_MISTRAL")
+    or os.environ.get("HF_HUB_OFFLINE") == "1"
+    or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+):
     _patch_mistral()

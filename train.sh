@@ -18,7 +18,7 @@ CUDA_DEVICES="0,1"
 GLOBAL_BATCH_SIZE=64
 MAX_STEPS=80000
 SAVE_STEPS=10000
-DATALOADER_NUM_WORKERS=4
+DATALOADER_NUM_WORKERS=1
 WANDB_PROJECT="GR00T_N1d7_60k_g1_wbc_pick_up_multiple_cushions_brainco_200"
 
 # W&B 开关：tyro 布尔要用 --use-wandb / --no-use-wandb，不能写 =true/=false
@@ -48,7 +48,12 @@ export HF_HUB_CACHE="${CACHE_ROOT}/huggingface/hub"
 export HF_DATASETS_CACHE="${CACHE_ROOT}/huggingface/datasets"
 export HUGGINGFACE_HUB_CACHE="${HF_HUB_CACHE}"
 export TRANSFORMERS_CACHE="${HF_HUB_CACHE}"
-export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-0}"
+# 权重已在 HF_HUB_CACHE 时默认离线，避免再连 huggingface.co（adapter_config 等 HEAD）
+export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"
+export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
+# transformers _patch_mistral_regex 会对 Hub ID 无条件调 model_info；Cosmos 非 mistral，跳过即可
+export GROOT_PATCH_MISTRAL="${GROOT_PATCH_MISTRAL:-1}"
+export GROOT_HF_LOCAL_FIRST="${GROOT_HF_LOCAL_FIRST:-1}"
 
 # 通用 / 构建类缓存（默认会落到 /root/.cache）
 export XDG_CACHE_HOME="${CACHE_ROOT}/xdg"

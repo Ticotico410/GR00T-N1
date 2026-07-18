@@ -36,6 +36,7 @@ _GET_FRAMES_BY_INDICES_BACKENDS: tuple[str, ...] = (
     "decord",
     "ffmpeg",
     "opencv",
+    "pyav",
 )
 _GET_FRAMES_BY_TIMESTAMPS_BACKENDS: tuple[str, ...] = (
     "torchcodec",
@@ -433,6 +434,23 @@ def get_frames_by_indices(
         cap.release()
         frames = np.array(frames)
         return frames
+    elif video_backend == "pyav":
+        # AV1 datasets: torchcodec/system ffmpeg often lack a software decoder;
+        # PyAV+libdav1d can decode them.
+        indices_list = [int(i) for i in indices]
+        wanted = set(indices_list)
+        max_idx = max(indices_list) if indices_list else -1
+        frames_by_idx: dict[int, np.ndarray] = {}
+        with av.open(video_path) as container:
+            for i, frame in enumerate(container.decode(video=0)):
+                if i in wanted:
+                    frames_by_idx[i] = frame.to_ndarray(format="rgb24")
+                if i >= max_idx:
+                    break
+        missing = [i for i in indices_list if i not in frames_by_idx]
+        if missing:
+            raise ValueError(f"Failed to read frames {missing[:10]} from {video_path}")
+        return np.stack([frames_by_idx[i] for i in indices_list])
     else:
         raise _unsupported_backend_error(
             "get_frames_by_indices", video_backend, _GET_FRAMES_BY_INDICES_BACKENDS

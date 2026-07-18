@@ -84,20 +84,43 @@ if __name__ == "__main__":
     config.model.random_rotation_angle = None
     config.model.color_jitter_params = None
     config.model.extra_augmentation_config = None
-    config.model.crop_fraction = 1.0
+    config.model.shortest_image_edge = None
+    config.model.crop_fraction = None
     if config.model.image_target_size is not None:
         config.model.image_crop_size = tuple(config.model.image_target_size)
 
     config.model.load_bf16 = False
     config.model.reproject_vision = False
-    config.model.model_name = "nvidia/Cosmos-Reason2-2B"
     config.model.backbone_trainable_params_fp32 = True
     config.model.use_relative_action = True
 
     # Prefer HF cache under CACHE_ROOT (set by train.sh); avoid silent /root/.cache hits.
+    # model_name must be a local dir when offline — HF repo IDs still probe the Hub
+    # (e.g. adapter_config.json HEAD) even if weights are already cached.
     hf_hub_cache = os.environ.get("HF_HUB_CACHE") or os.environ.get("HUGGINGFACE_HUB_CACHE")
     if hf_hub_cache:
         config.training.transformers_cache_dir = hf_hub_cache
+
+    cosmos_repo = "nvidia/Cosmos-Reason2-2B"
+    cosmos_local = os.environ.get("COSMOS_REASON2_PATH")
+    if not cosmos_local and hf_hub_cache:
+        snap_root = (
+            Path(hf_hub_cache) / f"models--{cosmos_repo.replace('/', '--')}" / "snapshots"
+        )
+        if snap_root.is_dir():
+            snaps = sorted(p for p in snap_root.iterdir() if p.is_dir())
+            if snaps:
+                cosmos_local = str(snaps[-1])
+    if cosmos_local and Path(cosmos_local).is_dir():
+        config.model.model_name = cosmos_local
+        config.training.transformers_local_files_only = True
+        print(f"Using local Cosmos backbone: {cosmos_local}")
+    else:
+        config.model.model_name = cosmos_repo
+        print(
+            f"WARNING: local Cosmos cache not found; will use Hub id {cosmos_repo}. "
+            "Set COSMOS_REASON2_PATH or populate HF_HUB_CACHE, and/or HF_HUB_OFFLINE=1."
+        )
 
     # Align model max action horizon with the registered modality action chunk length.
     from gr00t.configs.data.embodiment_configs import MODALITY_CONFIGS
@@ -130,6 +153,8 @@ if __name__ == "__main__":
     config.data.shard_size = ft_config.shard_size
     config.data.episode_sampling_rate = ft_config.episode_sampling_rate
     config.data.num_shards_per_epoch = ft_config.num_shards_per_epoch
+    # Dataset videos are AV1; torchcodec/system ffmpeg lack a software decoder here.
+    config.data.video_backend = "pyav"
 
     config.training.save_only_model = ft_config.save_only_model
     config.training.resume_from_checkpoint = ft_config.resume_from_checkpoint

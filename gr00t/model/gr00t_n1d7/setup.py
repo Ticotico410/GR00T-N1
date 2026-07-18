@@ -81,6 +81,9 @@ class Gr00tN1d7Pipeline(ModelPipeline):
         if self.config.training.start_from_checkpoint is not None and not skip_weight_loading:
             model, loading_info = AutoModel.from_pretrained(
                 self.config.training.start_from_checkpoint,
+                # Override checkpoint config so backbone/tokenizer load from local Cosmos path
+                # instead of Hub id (nvidia/Cosmos-Reason2-2B) when offline.
+                model_name=self.config.model.model_name,
                 tune_llm=self.config.model.tune_llm,
                 tune_visual=self.config.model.tune_visual,
                 tune_projector=self.config.model.tune_projector,
