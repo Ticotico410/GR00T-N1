@@ -34,13 +34,14 @@ unitree_g1_wbc_config = {
             "wrist_right",
         ],
     ),
-    # State: left_hand (6) + right_hand (6) + robot_q (36) = 48 dims
+    # State: left_hand (6) + right_hand (6) + robot_root (7) + robot_qpos (29) = 48 dims
     "state": ModalityConfig(
         delta_indices=[0],
         modality_keys=[
             "left_hand",
             "right_hand",
-            "robot_q",
+            "robot_root",
+            "robot_qpos",
         ],
     ),
     # Action: 16-step prediction horizon; one ActionConfig per modality key
@@ -49,9 +50,15 @@ unitree_g1_wbc_config = {
         modality_keys=[
             "left_hand",
             "right_hand",
-            "robot_q",
+            "robot_root",
+            "robot_qpos",
         ],
         action_configs=[
+            ActionConfig(
+                rep=ActionRepresentation.RELATIVE,
+                type=ActionType.NON_EEF,
+                format=ActionFormat.DEFAULT,
+            ),
             ActionConfig(
                 rep=ActionRepresentation.RELATIVE,
                 type=ActionType.NON_EEF,

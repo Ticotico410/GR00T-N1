@@ -16,7 +16,6 @@
 # Launch finetuning for N1.7 on "single node".
 # This script tries to provide a similar user experience as current OSS.
 
-import json
 import os
 from pathlib import Path
 
@@ -80,12 +79,14 @@ if __name__ == "__main__":
     config.model.tune_projector = ft_config.tune_projector
     config.model.tune_diffusion_model = ft_config.tune_diffusion_model
     config.model.state_dropout_prob = ft_config.state_dropout_prob
-    config.model.random_rotation_angle = ft_config.random_rotation_angle
-    config.model.color_jitter_params = ft_config.color_jitter_params
-    if ft_config.extra_augmentation_config:
-        config.model.extra_augmentation_config = json.loads(ft_config.extra_augmentation_config)
-    else:
-        config.model.extra_augmentation_config = None
+    # Disable all image augmentations for fine-tuning: no random crop / rotation /
+    # color jitter / mask-based extras. Keep only deterministic letterbox + resize.
+    config.model.random_rotation_angle = None
+    config.model.color_jitter_params = None
+    config.model.extra_augmentation_config = None
+    config.model.crop_fraction = 1.0
+    if config.model.image_target_size is not None:
+        config.model.image_crop_size = tuple(config.model.image_target_size)
 
     config.model.load_bf16 = False
     config.model.reproject_vision = False

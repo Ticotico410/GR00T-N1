@@ -10,8 +10,13 @@
             "end": 12,
             "original_key": "observation.state.hand_state"
         },
-        "robot_q": {
+        "robot_root": {
             "start": 0,
+            "end": 7,
+            "original_key": "observation.state.robot_q_current"
+        },
+        "robot_qpos": {
+            "start": 7,
             "end": 36,
             "original_key": "observation.state.robot_q_current"
         }
@@ -27,8 +32,13 @@
             "end": 12,
             "original_key": "action.hand_cmd"
         },
-        "robot_q": {
+        "robot_root": {
             "start": 0,
+            "end": 7,
+            "original_key": "action.robot_q_desired"
+        },
+        "robot_qpos": {
+            "start": 7,
             "end": 36,
             "original_key": "action.robot_q_desired"
         }

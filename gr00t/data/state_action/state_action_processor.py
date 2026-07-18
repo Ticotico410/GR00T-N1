@@ -64,17 +64,16 @@ class UnitreeRootRelative6D:
     stored inside the processed action.
     """
 
-    RAW_DIM = 36
-    PROCESSED_DIM = 38
+    RAW_DIM = 7
+    PROCESSED_DIM = 9
     ROOT_RAW_DIM = 7
     ROOT_PROCESSED_DIM = 9
-    JOINT_DIM = 29
+    JOINT_DIM = 0
     EPS = 1e-8
 
-    ACTION_KEYS = frozenset({"robot_q", "robot_q_desired"})
+    ACTION_KEYS = frozenset({"robot_root"})
     STATE_KEY_CANDIDATES = {
-        "robot_q": ("robot_q", "robot_q_current"),
-        "robot_q_desired": ("robot_q_current", "robot_q"),
+        "robot_root": ("robot_root", "robot_root_current"),
     }
 
     @classmethod
@@ -207,14 +206,22 @@ class UnitreeRootRelative6D:
     def to_relative(cls, action: np.ndarray, reference_state: np.ndarray) -> np.ndarray:
         action = np.asarray(action)
         reference_state = np.asarray(reference_state)
+
         if action.ndim != 2 or action.shape[-1] != cls.RAW_DIM:
-            raise ValueError(f"Expected Unitree action (T, {cls.RAW_DIM}), got {action.shape}")
-        if reference_state.ndim != 1 or reference_state.shape[-1] < cls.ROOT_RAW_DIM:
             raise ValueError(
-                f"Expected reference state ({cls.RAW_DIM},) or at least 7D root, got {reference_state.shape}"
+                f"Expected Unitree action (T, {cls.RAW_DIM}), got {action.shape}"
             )
+
+        if reference_state.ndim != 1 or reference_state.shape[-1] != cls.RAW_DIM:
+            raise ValueError(
+                f"Expected reference state ({cls.RAW_DIM},), "
+                f"got {reference_state.shape}"
+            )
+
         if not np.all(np.isfinite(action)) or not np.all(np.isfinite(reference_state)):
-            raise ValueError("Unitree root action or reference state contains NaN or Inf")
+            raise ValueError(
+                "Unitree action or reference state contains NaN or Inf"
+            )
 
         reference_position = reference_state[:3]
         reference_quaternion = cls._normalize_quaternion(reference_state[3:7])
@@ -222,26 +229,37 @@ class UnitreeRootRelative6D:
 
         future_position = action[:, :3]
         future_rotation = cls.quaternion_to_matrix(action[:, 3:7])
-        joint_qpos = action[:, 7:]
 
+        # Root translation expressed in the reference root frame.
         world_delta = future_position - reference_position
         local_delta = np.einsum("ij,tj->ti", reference_rotation.T, world_delta)
+
+        # Root orientation relative to the reference root orientation.
         relative_rotation = np.einsum("ij,tjk->tik", reference_rotation.T, future_rotation)
         relative_rotation_6d = cls.matrix_to_rotation_6d(relative_rotation)
 
-        return np.concatenate((local_delta, relative_rotation_6d, joint_qpos), axis=-1)
+        return np.concatenate((local_delta, relative_rotation_6d), axis=-1)
 
     @classmethod
     def to_absolute(cls, action: np.ndarray, reference_state: np.ndarray) -> np.ndarray:
         action = np.asarray(action)
         reference_state = np.asarray(reference_state)
+
         if action.ndim != 2 or action.shape[-1] != cls.PROCESSED_DIM:
             raise ValueError(
-                f"Expected processed Unitree action (T, {cls.PROCESSED_DIM}), got {action.shape}"
+                f"Expected processed Unitree action "
+                f"(T, {cls.PROCESSED_DIM}), got {action.shape}"
             )
-        if reference_state.ndim != 1 or reference_state.shape[-1] < cls.ROOT_RAW_DIM:
+
+        if reference_state.ndim != 1 or reference_state.shape[-1] != cls.RAW_DIM:
             raise ValueError(
-                f"Expected reference state ({cls.RAW_DIM},) or at least 7D root, got {reference_state.shape}"
+                f"Expected reference state ({cls.RAW_DIM},), "
+                f"got {reference_state.shape}"
+            )
+
+        if not np.all(np.isfinite(action)) or not np.all(np.isfinite(reference_state)):
+            raise ValueError(
+                "Processed Unitree action or reference state contains NaN or Inf"
             )
 
         reference_position = reference_state[:3]
@@ -250,17 +268,18 @@ class UnitreeRootRelative6D:
 
         local_delta = action[:, :3]
         relative_rotation = cls.rotation_6d_to_matrix(action[:, 3:9])
-        joint_qpos = action[:, 9:]
 
         world_delta = np.einsum("ij,tj->ti", reference_rotation, local_delta)
         absolute_position = reference_position + world_delta
+
         absolute_rotation = np.einsum("ij,tjk->tik", reference_rotation, relative_rotation)
         absolute_quaternion = cls.matrix_to_quaternion(absolute_rotation)
 
-        sign = np.sum(absolute_quaternion * reference_quaternion, axis=-1, keepdims=True)
+        # Select the quaternion sign closest to the reference quaternion.
+        sign = np.sum(absolute_quaternion * reference_quaternion[None, :], axis=-1, keepdims=True)
         absolute_quaternion = np.where(sign < 0.0, -absolute_quaternion, absolute_quaternion)
 
-        return np.concatenate((absolute_position, absolute_quaternion, joint_qpos), axis=-1)
+        return np.concatenate((absolute_position, absolute_quaternion), axis=-1)
 
     @classmethod
     def build_normalization_params(cls, raw_params: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
@@ -281,22 +300,19 @@ class UnitreeRootRelative6D:
             (
                 np.full(3, -translation_bound, dtype=raw_min.dtype),
                 np.full(6, -1.0, dtype=raw_min.dtype),
-                raw_min[7:],
             )
         )
         processed_max = np.concatenate(
             (
                 np.full(3, translation_bound, dtype=raw_max.dtype),
                 np.full(6, 1.0, dtype=raw_max.dtype),
-                raw_max[7:],
             )
         )
-        processed_mean = np.concatenate((np.zeros(9, dtype=raw_mean.dtype), raw_mean[7:]))
+        processed_mean = np.zeros(9, dtype=raw_mean.dtype)
         processed_std = np.concatenate(
             (
                 np.full(3, translation_std, dtype=raw_std.dtype),
                 np.ones(6, dtype=raw_std.dtype),
-                raw_std[7:],
             )
         )
 
