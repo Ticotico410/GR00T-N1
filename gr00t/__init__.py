@@ -30,6 +30,103 @@ def _hf_env_repr() -> str:
     return f"HF_HOME={hf_home} HUGGINGFACE_HUB_CACHE={hf_hub}"
 
 
+_COSMOS_REASON2_REPO = "nvidia/Cosmos-Reason2-2B"
+# Well-known local NVMe HF snapshot used for open-loop / server-client inference
+# when the training-server path (/sh/ycb/...) is not available.
+_DEFAULT_LOCAL_COSMOS_SNAPSHOT = os.path.join(
+    os.path.expanduser("~"),
+    ".cache",
+    "huggingface",
+    "hub",
+    f"models--{_COSMOS_REASON2_REPO.replace('/', '--')}",
+    "snapshots",
+    "9ce19a195e423419c349abfc86fd07178b230561",
+)
+
+
+def _latest_cosmos_snapshot(hf_hub_cache: str) -> str | None:
+    snap_root = os.path.join(
+        hf_hub_cache,
+        f"models--{_COSMOS_REASON2_REPO.replace('/', '--')}",
+        "snapshots",
+    )
+    if not os.path.isdir(snap_root):
+        return None
+    snaps = sorted(
+        os.path.join(snap_root, name)
+        for name in os.listdir(snap_root)
+        if os.path.isdir(os.path.join(snap_root, name))
+    )
+    return snaps[-1] if snaps else None
+
+
+def resolve_cosmos_reason2_path() -> str | None:
+    """Locate a Cosmos-Reason2-2B directory without rewriting checkpoints.
+
+    Intended split (env overrides; no shell script required for inference):
+
+    - **Training** (``train.sh`` on server): ``COSMOS_REASON2_PATH`` /
+      ``HF_HUB_CACHE`` under ``/sh/ycb/.cache/huggingface/...``
+    - **Local open-loop / server-client**: ``LOCAL_COSMOS_REASON2_PATH`` or
+      ``COSMOS_REASON2_PATH``, else HF cache, else the well-known NVMe snapshot
+      under ``~/.cache/huggingface/hub/models--nvidia--Cosmos-Reason2-2B/...``
+
+    Resolution order:
+    1. ``COSMOS_REASON2_PATH`` / ``LOCAL_COSMOS_REASON2_PATH`` if directory exists
+    2. Latest snapshot under ``HF_HUB_CACHE`` / ``HUGGINGFACE_HUB_CACHE`` /
+       ``$HF_HOME/hub``
+    3. Default local snapshot ``~/.cache/huggingface/.../9ce19a...`` (if present)
+    4. Latest snapshot under ``~/.cache/huggingface/hub``
+
+    Returns None when nothing local is found (caller may fall back to Hub id).
+    """
+    for env_name in ("COSMOS_REASON2_PATH", "LOCAL_COSMOS_REASON2_PATH"):
+        env_path = os.environ.get(env_name, "").strip()
+        if env_path and os.path.isdir(env_path):
+            return env_path
+
+    hf_hub_candidates: list[str] = []
+    for key in ("HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE"):
+        value = os.environ.get(key)
+        if value:
+            hf_hub_candidates.append(value)
+    if os.environ.get("HF_HOME"):
+        hf_hub_candidates.append(os.path.join(os.environ["HF_HOME"], "hub"))
+    # Always consider the user home HF cache (local inference default).
+    hf_hub_candidates.append(
+        os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+    )
+
+    seen: set[str] = set()
+    for hf_hub_cache in hf_hub_candidates:
+        if not hf_hub_cache or hf_hub_cache in seen:
+            continue
+        seen.add(hf_hub_cache)
+        found = _latest_cosmos_snapshot(hf_hub_cache)
+        if found:
+            return found
+
+    if os.path.isdir(_DEFAULT_LOCAL_COSMOS_SNAPSHOT):
+        return _DEFAULT_LOCAL_COSMOS_SNAPSHOT
+    return None
+
+
+def _maybe_remap_missing_cosmos_path(name_str: str) -> str | None:
+    """Remap a missing absolute Cosmos path baked into a checkpoint config.
+
+    Fine-tuned checkpoints may embed a server-only absolute path such as
+    ``/sh/ycb/.cache/huggingface/hub/models--nvidia--Cosmos-Reason2-2B/snapshots/...``.
+    When that path is absent on the current machine, resolve a local copy via
+    ``resolve_cosmos_reason2_path()`` instead of treating the absolute path as a
+    Hub repo id (which raises HFValidationError).
+    """
+    if not name_str.startswith("/") or os.path.isdir(name_str):
+        return None
+    if "Cosmos-Reason2" not in name_str:
+        return None
+    return resolve_cosmos_reason2_path()
+
+
 def _torch_dtype_from_arg(dtype):
     """Resolve a transformers dtype argument into a torch dtype, if concrete."""
     if dtype is None or dtype == "auto":
@@ -236,6 +333,25 @@ def _hf_local_first_call(
     if os.path.isdir(name_str):
         print(f"[groot/hf] local path: {name_str} | {_hf_env_repr()}", flush=True)
         return orig_func(klass, pretrained_model_name_or_path, *args, **kwargs)
+
+    remapped = _maybe_remap_missing_cosmos_path(name_str)
+    if remapped is not None:
+        print(
+            f"[groot/hf] remapped missing Cosmos path: {name_str} -> {remapped} | {_hf_env_repr()}",
+            flush=True,
+        )
+        pretrained_model_name_or_path = remapped
+        name_str = remapped
+        if os.path.isdir(name_str):
+            return orig_func(klass, pretrained_model_name_or_path, *args, **kwargs)
+    elif name_str.startswith("/") and "Cosmos-Reason2" in name_str:
+        raise FileNotFoundError(
+            f"Cosmos backbone path from checkpoint does not exist: {name_str}\n"
+            "Set COSMOS_REASON2_PATH to a local Cosmos-Reason2-2B directory, "
+            "or populate HF_HUB_CACHE with nvidia/Cosmos-Reason2-2B. "
+            "Server-side train.sh paths are unchanged."
+        )
+
     if kwargs.get("local_files_only", False):
         return orig_func(klass, pretrained_model_name_or_path, *args, **kwargs)
     try:

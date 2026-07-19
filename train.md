@@ -1,6 +1,15 @@
 ## GR00T-N1.7 Train / Inference Tutorial
 
-### Paths (keep heavy I/O off `/root`)
+### Cosmos path split (important)
+
+| Mode | Script | Cosmos path |
+|------|--------|-------------|
+| **Training (server)** | `train.sh` → `launch_finetune.py` | `/sh/ycb/.cache/huggingface/hub/models--nvidia--Cosmos-Reason2-2B/...` |
+| **Open-loop (local)** | `eval_open_loop.sh` → `scripts/local_inference_env.sh` | `/home/karthus_chen/.cache/huggingface/hub/models--nvidia--Cosmos-Reason2-2B/snapshots/9ce19a195e423419c349abfc86fd07178b230561` |
+
+Checkpoint `config.json` may still embed the server `/sh/ycb/...` absolute path. That is fine: training keeps using `/sh/ycb`; local inference overrides via `COSMOS_REASON2_PATH` without rewriting the checkpoint.
+
+### Paths — training server (keep heavy I/O off `/root`)
 
 | Role | Path |
 |------|------|
@@ -47,7 +56,7 @@ List sessions: tmux ls
 pkill -KILL -f 'gr00t/experiment/launch_finetune.py' || true
 ```
 ---
-### Open-loop eval (offline plot GT vs pred)
+### Open-loop eval — on training server (uses `/sh/ycb` Cosmos)
 ```bash
 source /sh/ycb/venvs/gr00t_n1d7/bin/activate
 cd /sh/ycb/model/GR00T
@@ -56,11 +65,8 @@ export HF_HOME=/sh/ycb/.cache/huggingface
 export HF_HUB_CACHE=/sh/ycb/.cache/huggingface/hub
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 export GROOT_PATCH_MISTRAL=1
+# optional pin: export COSMOS_REASON2_PATH=$HF_HUB_CACHE/models--nvidia--Cosmos-Reason2-2B/snapshots/<hash>
 
-# Dataset videos are AV1 → default --video-backend pyav
-# Default --root-eval-space absolute keeps original open-loop (full action, absolute space).
-# For Unitree root 9D training target space:
-#   add --root-eval-space relative9d  (or: ROOT_EVAL_SPACE=relative9d bash eval_open_loop.sh)
 python gr00t/eval/open_loop_eval.py \
   --dataset-path /sh/datasets/g1/pick_up_multiple_cushions_brainco_200/lerobot_v2.1 \
   --embodiment-tag UNITREE_G1_WBC \
@@ -72,6 +78,13 @@ python gr00t/eval/open_loop_eval.py \
   --steps 400 \
   --video-backend pyav \
   --root-eval-space absolute
+```
+
+### Open-loop — on local machine (uses home NVMe Cosmos)
+```bash
+cd /home/karthus_chen/ycb_ws/GR00T-N1
+bash eval_open_loop.sh
+# Sources scripts/local_inference_env.sh → COSMOS_REASON2_PATH under ~/.cache/huggingface/...
 ```
 ---
 ### Finetune specific parameters

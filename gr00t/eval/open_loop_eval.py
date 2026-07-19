@@ -197,6 +197,24 @@ def parse_action_gr00t(action: dict[str, Any]) -> dict[str, Any]:
     return {f"action.{key}": action[key][0] for key in action}
 
 
+def _apply_root_xyz_ema(
+    root_actions: np.ndarray,
+    ema_alpha: float,
+    ema_xyz: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """EMA-smooth robot_root translation (xyz). Preserves rotation dims unchanged."""
+    root_actions = np.asarray(root_actions).copy()
+    if root_actions.ndim == 1:
+        root_actions = root_actions[None, :]
+    for i in range(root_actions.shape[0]):
+        if ema_xyz is None:
+            ema_xyz = root_actions[i, 0:3].copy()
+        else:
+            ema_xyz = ema_alpha * root_actions[i, 0:3] + (1.0 - ema_alpha) * ema_xyz
+        root_actions[i, 0:3] = ema_xyz
+    return root_actions, ema_xyz
+
+
 def evaluate_single_trajectory(
     policy: BasePolicy,
     loader: LeRobotEpisodeLoader,
@@ -207,6 +225,7 @@ def evaluate_single_trajectory(
     action_horizon=16,
     save_plot_path=None,
     root_eval_space: str = "absolute",
+    ema_alpha: float | None = None,
 ):
     # Ensure steps doesn't exceed trajectory length
     traj = loader[traj_id]
@@ -257,6 +276,10 @@ def evaluate_single_trajectory(
 
     modality_configs = deepcopy(loader.modality_configs)
     modality_configs.pop("action")
+    
+    # EMA state
+    ema_xyz = None
+    
     for step_count in range(0, actual_steps, action_horizon):
         data_point = extract_step_data(traj, step_count, modality_configs, embodiment_tag)
         logging.info(f"inferencing at step: {step_count}")
@@ -271,9 +294,27 @@ def evaluate_single_trajectory(
         _action_chunk, _ = policy.get_action(parsed_obs)
         action_chunk = parse_action_gr00t(_action_chunk)
 
+        # Last chunk may be shorter than action_horizon (e.g. step 768 with H=48, steps=800).
+        horizon = min(action_horizon, actual_steps - step_count)
+
+        # Policy always decodes robot_root back to absolute 7D (xyz+quat). EMA must
+        # target robot_root[:, 0:3], not concat index 0:3 (left_hand in WBC layout).
+        if ema_alpha is not None and ROOT_ACTION_KEY in action_keys:
+            root_key = f"action.{ROOT_ACTION_KEY}"
+            root_full = np.asarray(action_chunk[root_key])
+            if root_full.ndim == 1:
+                root_full = root_full[None, :]
+            root_smoothed, ema_xyz = _apply_root_xyz_ema(
+                root_full[:horizon],
+                ema_alpha,
+                ema_xyz,
+            )
+            root_out = root_full.copy()
+            root_out[:horizon] = root_smoothed
+            action_chunk[root_key] = root_out
+
         if root_eval_space == "relative9d":
             assert gt_root_abs is not None and state_root_abs is not None
-            horizon = min(action_horizon, actual_steps - step_count)
             pred_abs_chunk = np.asarray(action_chunk[f"action.{ROOT_ACTION_KEY}"])[:horizon]
             if pred_abs_chunk.ndim == 1:
                 pred_abs_chunk = pred_abs_chunk[None, :]
@@ -281,14 +322,15 @@ def evaluate_single_trajectory(
             reference = state_root_abs[step_count]
             if reference.ndim == 2:
                 reference = reference[-1]
+
+            pred_relative9d = UnitreeRootRelative6D.to_relative(pred_abs_chunk, reference)
+
             gt_relative9d_segments.append(
                 UnitreeRootRelative6D.to_relative(gt_abs_chunk, reference)
             )
-            pred_relative9d_segments.append(
-                UnitreeRootRelative6D.to_relative(pred_abs_chunk, reference)
-            )
+            pred_relative9d_segments.append(pred_relative9d)
         else:
-            for j in range(action_horizon):
+            for j in range(horizon):
                 # NOTE: concat_pred_action = action[f"action.{modality_keys[0]}"][j]
                 # the np.atleast_1d is to ensure the action is a 1D array, handle where single value is returned
                 concat_pred_action = np.concatenate(
@@ -324,6 +366,19 @@ def evaluate_single_trajectory(
         pred_action_across_time = np.array(pred_action_across_time)[:actual_steps]
         dim_labels = None
         title_note = ""
+
+    if ema_alpha is not None:
+        title_note = f"{title_note} | EMA xyz alpha={ema_alpha}".strip(" |")
+        root_xyz_offset = 0
+        for key in loader.modality_configs["action"].modality_keys:
+            if key == ROOT_ACTION_KEY:
+                break
+            root_xyz_offset += len(traj[f"action.{key}"].iloc[0])
+        logging.info(
+            "EMA enabled on decoded robot_root xyz; in absolute concat plot dims %d:%d",
+            root_xyz_offset,
+            root_xyz_offset + 3,
+        )
 
     assert gt_action_across_time.shape == pred_action_across_time.shape, (
         f"gt_action: {gt_action_across_time.shape}, pred_action: {pred_action_across_time.shape}"
@@ -421,6 +476,9 @@ class ArgsConfig:
     - relative9d: Unitree robot_root only, local xyz + rot6d (same as training target)
     """
 
+    ema_alpha: float | None = None
+    """EMA smoothing factor for translation xyz (e.g. 0.1). If provided, applies EMA to smoothing."""
+
 
 def main(args: ArgsConfig):
     args.embodiment_tag = EmbodimentTag.resolve(args.embodiment_tag)
@@ -497,6 +555,7 @@ def main(args: ArgsConfig):
             action_horizon=args.action_horizon,
             save_plot_path=args.save_plot_path,
             root_eval_space=args.root_eval_space,
+            ema_alpha=args.ema_alpha,
         )
         logging.info(f"MSE for trajectory {traj_id}: {mse}, MAE: {mae}")
         all_mse.append(mse)

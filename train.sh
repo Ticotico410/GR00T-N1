@@ -6,7 +6,7 @@ VENV_PATH="/sh/ycb/venvs/gr00t_n1d7/bin/activate"
 CACHE_ROOT="/sh/ycb/.cache"
 DATASET_ROOT="/sh/datasets/g1/pick_up_multiple_cushions_brainco_200/lerobot_v2.1"
 
-EXP_NAME="GR00T_N1d7_60k_g1_wbc_pick_up_multiple_cushions_brainco_200"
+EXP_NAME="GR00T_N1d7_100k_g1_wbc_pick_up_multiple_cushions_brainco_200"
 CHECKPOINT_BASE_DIR="/sh/ycb/checkpoints"
 OUTPUT_DIR="${CHECKPOINT_BASE_DIR}/${EXP_NAME}"
 BASE_MODEL_PATH="${CACHE_ROOT}/gr00t_n1d7/GR00T-N1.7-3B"
@@ -16,13 +16,13 @@ MODALITY_CONFIG_PATH="examples/G1/wbc/unitree_g1_wbc_config.py"
 NUM_GPUS=2
 CUDA_DEVICES="0,1"
 GLOBAL_BATCH_SIZE=64
-MAX_STEPS=80000
+# max_steps 是总步数（非增量）；从 checkpoint-80000 续训需 > 80000
+MAX_STEPS=100000
 SAVE_STEPS=10000
 DATALOADER_NUM_WORKERS=1
 WANDB_PROJECT="GR00T_N1d7_60k_g1_wbc_pick_up_multiple_cushions_brainco_200"
-
-# W&B 开关：tyro 布尔要用 --use-wandb / --no-use-wandb，不能写 =true/=false
-WANDB_ENABLED=true
+# 接上已有 wandb run：https://wandb.ai/ycb04106438-uc-san-diego/.../runs/obp3g8cf
+WANDB_RUN_ID="obp3g8cf"
 
 cd "${PROJECT_ROOT}"
 source "${VENV_PATH}"
@@ -43,6 +43,8 @@ mkdir -p "${CACHE_ROOT}/wandb"
 mkdir -p "${CHECKPOINT_BASE_DIR}"
 
 # Hugging Face / transformers（Cosmos-Reason2 等会走这里）
+# Training Cosmos MUST stay under /sh/ycb (server). Do not point at laptop
+# ~/.cache/... — that path is only for local open-loop inference.
 export HF_HOME="${CACHE_ROOT}/huggingface"
 export HF_HUB_CACHE="${CACHE_ROOT}/huggingface/hub"
 export HF_DATASETS_CACHE="${CACHE_ROOT}/huggingface/datasets"
@@ -54,6 +56,16 @@ export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 # transformers _patch_mistral_regex 会对 Hub ID 无条件调 model_info；Cosmos 非 mistral，跳过即可
 export GROOT_PATCH_MISTRAL="${GROOT_PATCH_MISTRAL:-1}"
 export GROOT_HF_LOCAL_FIRST="${GROOT_HF_LOCAL_FIRST:-1}"
+
+# Pin Cosmos backbone to server HF snapshot when present.
+_SERVER_COSMOS_SNAPS="${HF_HUB_CACHE}/models--nvidia--Cosmos-Reason2-2B/snapshots"
+if [[ -z "${COSMOS_REASON2_PATH:-}" && -d "${_SERVER_COSMOS_SNAPS}" ]]; then
+  COSMOS_REASON2_PATH="$(
+    find "${_SERVER_COSMOS_SNAPS}" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort | tail -n 1
+  )"
+  export COSMOS_REASON2_PATH
+fi
+unset _SERVER_COSMOS_SNAPS
 
 # 通用 / 构建类缓存（默认会落到 /root/.cache）
 export XDG_CACHE_HOME="${CACHE_ROOT}/xdg"
@@ -83,18 +95,13 @@ unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
 unset WANDB_DISABLED
 unset WANDB_MODE
 
-if [[ "${WANDB_ENABLED}" == "true" ]]; then
-  if [[ -z "${WANDB_API_KEY:-}" ]]; then
-    echo "ERROR: 请先: export WANDB_API_KEY='你的key'  （https://wandb.ai/authorize）"
-    exit 1
-  fi
-  export WANDB_API_KEY
-  WANDB_FLAG=(--use-wandb)
-else
-  export WANDB_DISABLED=true
-  export WANDB_MODE=disabled
-  WANDB_FLAG=(--no-use-wandb)
+if [[ -z "${WANDB_API_KEY:-}" ]]; then
+  echo "ERROR: 请先: export WANDB_API_KEY='你的key'  （https://wandb.ai/authorize）"
+  exit 1
 fi
+export WANDB_API_KEY
+export WANDB_RUN_ID
+export WANDB_RESUME=allow
 
 # 若只在 /root/.cache 登过 HF，把 token 同步到 HF_HOME，避免 gated 模型 401
 if [[ ! -f "${HF_HOME}/token" && -f /root/.cache/huggingface/token ]]; then
@@ -112,11 +119,14 @@ echo "DATASET_ROOT=${DATASET_ROOT}"
 echo "BASE_MODEL_PATH=${BASE_MODEL_PATH}"
 echo "OUTPUT_DIR=${OUTPUT_DIR}"
 echo "HF_HOME=${HF_HOME}"
+echo "COSMOS_REASON2_PATH=${COSMOS_REASON2_PATH:-<unset; launch_finetune will scan HF_HUB_CACHE>}"
 echo "TORCH_HOME=${TORCH_HOME}"
 echo "TMPDIR=${TMPDIR}"
 echo "UV_CACHE_DIR=${UV_CACHE_DIR}"
-echo "WANDB_ENABLED=${WANDB_ENABLED}"
 echo "WANDB_DIR=${WANDB_DIR}"
+echo "WANDB_RUN_ID=${WANDB_RUN_ID}"
+echo "WANDB_RESUME=${WANDB_RESUME}"
+echo "MAX_STEPS=${MAX_STEPS}"
 
 python -m torch.distributed.run \
   --nproc_per_node="${NUM_GPUS}" \
@@ -133,4 +143,5 @@ python -m torch.distributed.run \
   --global-batch-size "${GLOBAL_BATCH_SIZE}" \
   --dataloader-num-workers "${DATALOADER_NUM_WORKERS}" \
   --wandb-project "${WANDB_PROJECT}" \
-  "${WANDB_FLAG[@]}"
+  --resume-from-checkpoint \
+  --use-wandb

@@ -27,6 +27,7 @@ import numpy as np
 import torch
 from transformers import AutoModel, AutoProcessor
 
+from gr00t import resolve_cosmos_reason2_path
 from gr00t.data.embodiment_tags import FINETUNE_ONLY_TAGS, POSTTRAIN_TAGS, EmbodimentTag
 from gr00t.data.interfaces import BaseProcessor
 from gr00t.data.types import MessageType, ModalityConfig, VLAStepData
@@ -96,8 +97,25 @@ class Gr00tPolicy(BasePolicy):
             embodiment_tag = EmbodimentTag.resolve(embodiment_tag)
         model_dir = Path(model_path)
 
+        # Inference-only: checkpoints often embed the training-server Cosmos path
+        # (/sh/ycb/...). resolve_cosmos_reason2_path() falls back to
+        # LOCAL_COSMOS_REASON2_PATH / ~/.cache/huggingface/... without needing a
+        # shell wrapper. Training (train.sh) keeps /sh/ycb via HF_HUB_CACHE.
+        load_kwargs: dict[str, Any] = {}
+        cosmos_local = resolve_cosmos_reason2_path()
+        if cosmos_local is not None:
+            load_kwargs["model_name"] = cosmos_local
+            print(f"[Gr00tPolicy] Using Cosmos backbone: {cosmos_local}", flush=True)
+        else:
+            print(
+                "[Gr00tPolicy] WARNING: no local Cosmos path found; "
+                "checkpoint model_name may point at /sh/ycb/... Set "
+                "LOCAL_COSMOS_REASON2_PATH or populate ~/.cache/huggingface/hub.",
+                flush=True,
+            )
+
         # Load the pretrained model and move to target device with bfloat16 precision
-        model = AutoModel.from_pretrained(model_dir)
+        model = AutoModel.from_pretrained(model_dir, **load_kwargs)
         model.eval()  # Set model to evaluation mode
         model.to(device=device, dtype=torch.bfloat16)
         self.model = model
@@ -112,7 +130,9 @@ class Gr00tPolicy(BasePolicy):
             and not (model_dir / "processor_config.json").exists()
             else model_dir
         )
-        self.processor: BaseProcessor = AutoProcessor.from_pretrained(processor_dir)
+        self.processor: BaseProcessor = AutoProcessor.from_pretrained(
+            processor_dir, **load_kwargs
+        )
         self.processor.eval()
 
         # Store embodiment-specific configurations

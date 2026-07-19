@@ -101,25 +101,22 @@ if __name__ == "__main__":
     if hf_hub_cache:
         config.training.transformers_cache_dir = hf_hub_cache
 
+    # Training Cosmos path: train.sh pins /sh/ycb HF cache via COSMOS_REASON2_PATH
+    # / HF_HUB_CACHE. Do not use the laptop ~/.cache path here.
+    from gr00t import resolve_cosmos_reason2_path
+
     cosmos_repo = "nvidia/Cosmos-Reason2-2B"
-    cosmos_local = os.environ.get("COSMOS_REASON2_PATH")
-    if not cosmos_local and hf_hub_cache:
-        snap_root = (
-            Path(hf_hub_cache) / f"models--{cosmos_repo.replace('/', '--')}" / "snapshots"
-        )
-        if snap_root.is_dir():
-            snaps = sorted(p for p in snap_root.iterdir() if p.is_dir())
-            if snaps:
-                cosmos_local = str(snaps[-1])
-    if cosmos_local and Path(cosmos_local).is_dir():
+    cosmos_local = resolve_cosmos_reason2_path()
+    if cosmos_local:
         config.model.model_name = cosmos_local
         config.training.transformers_local_files_only = True
-        print(f"Using local Cosmos backbone: {cosmos_local}")
+        print(f"Using training Cosmos backbone: {cosmos_local}")
     else:
         config.model.model_name = cosmos_repo
         print(
-            f"WARNING: local Cosmos cache not found; will use Hub id {cosmos_repo}. "
-            "Set COSMOS_REASON2_PATH or populate HF_HUB_CACHE, and/or HF_HUB_OFFLINE=1."
+            f"WARNING: Cosmos cache not found under HF_HUB_CACHE/COSMOS_REASON2_PATH; "
+            f"will use Hub id {cosmos_repo}. On the training server run via train.sh "
+            "so HF_HUB_CACHE=/sh/ycb/.cache/huggingface/hub."
         )
 
     # Align model max action horizon with the registered modality action chunk length.
