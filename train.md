@@ -32,12 +32,13 @@ source /sh/ycb/venvs/gr00t_n1d7/bin/activate
 ### Training
 ```bash
 # 1. Generate the statistic value before finetuning (stats.json | relative_stats.json)
-#    Re-run this whenever action delta_indices / horizon changes (e.g. 16 -> 48).
+#    Re-run this whenever action delta_indices / horizon changes (e.g. 16 -> 40).
+#    Current sonic dataset: 68-dim action = motion_token(64) + hands(2+2).
 cd /sh/ycb/model/GR00T
 python gr00t/data/stats.py \
-  --dataset-path /sh/datasets/g1/pick_up_multiple_cushions_brainco_200/lerobot_v2.1 \
-  --embodiment-tag UNITREE_G1_WBC \
-  --modality-config-path examples/G1/wbc/unitree_g1_wbc_config.py
+  --dataset-path /sh/datasets/g1/sonic/walk_to_table_and_place_apple_on_pink_plate_100/lerobot_v2.1 \
+  --embodiment-tag UNITREE_G1_SONIC \
+  --modality-config-path examples/G1/sonic/unitree_g1_sonic_config.py
 
 # 2. Launch the training script on the training server (tmux)
 tmux new -s train
@@ -68,13 +69,13 @@ export GROOT_PATCH_MISTRAL=1
 # optional pin: export COSMOS_REASON2_PATH=$HF_HUB_CACHE/models--nvidia--Cosmos-Reason2-2B/snapshots/<hash>
 
 python gr00t/eval/open_loop_eval.py \
-  --dataset-path /sh/datasets/g1/pick_up_multiple_cushions_brainco_200/lerobot_v2.1 \
-  --embodiment-tag UNITREE_G1_WBC \
-  --model-path /sh/ycb/checkpoints/GR00T_N1d7_60k_g1_wbc_pick_up_multiple_cushions_brainco_200/GR00T_N1d7_60k_g1_wbc_pick_up_multiple_cushions_brainco_200/checkpoint-10000 \
-  --save_plot_path /sh/ycb/checkpoints/GR00T_N1d7_60k_g1_wbc_pick_up_multiple_cushions_brainco_200/open_loop_eval/traj_100.jpeg \
-  --traj-ids 100 \
+  --dataset-path /sh/datasets/g1/sonic/walk_to_table_and_place_apple_on_pink_plate_100/lerobot_v2.1 \
+  --embodiment-tag UNITREE_G1_SONIC \
+  --model-path /sh/ycb/checkpoints/GR00T_N1d7_g1_sonic_walk_to_table_place_apple_on_pink_plate_100/GR00T_N1d7_g1_sonic_walk_to_table_place_apple_on_pink_plate_100/checkpoint-20000 \
+  --save_plot_path /sh/ycb/checkpoints/GR00T_N1d7_g1_sonic_walk_to_table_place_apple_on_pink_plate_100/open_loop_eval/traj_0.jpeg \
+  --traj-ids 0 \
   --denoising-steps 4 \
-  --action-horizon 48 \
+  --action-horizon 40 \
   --steps 400 \
   --video-backend pyav \
   --root-eval-space absolute

@@ -79,7 +79,7 @@ MODALITY_CONFIGS = {
                 "right_arm",
                 "left_hand",
                 "right_hand",
-                "projected_gravity",
+                # "projected_gravity", # TODO: see the principle
             ],
         ),
         "action": ModalityConfig(

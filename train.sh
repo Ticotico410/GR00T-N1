@@ -4,25 +4,25 @@ set -euo pipefail
 PROJECT_ROOT="/sh/ycb/model/GR00T"
 VENV_PATH="/sh/ycb/venvs/gr00t_n1d7/bin/activate"
 CACHE_ROOT="/sh/ycb/.cache"
-DATASET_ROOT="/sh/datasets/g1/pick_up_multiple_cushions_brainco_200/lerobot_v2.1"
+DATASET_ROOT="/sh/datasets/g1/sonic/walk_to_table_and_place_apple_on_pink_plate_100/lerobot_v2.1"
 
-EXP_NAME="GR00T_N1d7_100k_g1_wbc_pick_up_multiple_cushions_brainco_200"
+EXP_NAME="GR00T_N1d7_g1_sonic_walk_to_table_place_apple_on_pink_plate_100"
 CHECKPOINT_BASE_DIR="/sh/ycb/checkpoints"
 OUTPUT_DIR="${CHECKPOINT_BASE_DIR}/${EXP_NAME}"
 BASE_MODEL_PATH="${CACHE_ROOT}/gr00t_n1d7/GR00T-N1.7-3B"
-EMBODIMENT_TAG="UNITREE_G1_WBC"
-MODALITY_CONFIG_PATH="examples/G1/wbc/unitree_g1_wbc_config.py"
+EMBODIMENT_TAG="UNITREE_G1_SONIC"
+MODALITY_CONFIG_PATH="examples/G1/sonic/unitree_g1_sonic_config.py"
 
 NUM_GPUS=2
 CUDA_DEVICES="0,1"
 GLOBAL_BATCH_SIZE=64
-# max_steps 是总步数（非增量）；从 checkpoint-80000 续训需 > 80000
-MAX_STEPS=100000
+MAX_STEPS=40000
 SAVE_STEPS=10000
+LEARNING_RATE=1e-4
 DATALOADER_NUM_WORKERS=1
-WANDB_PROJECT="GR00T_N1d7_60k_g1_wbc_pick_up_multiple_cushions_brainco_200"
-# 接上已有 wandb run：https://wandb.ai/ycb04106438-uc-san-diego/.../runs/obp3g8cf
-WANDB_RUN_ID="obp3g8cf"
+WANDB_PROJECT="GR00T_N1d7_g1_sonic_walk_to_table_place_apple_on_pink_plate_100"
+# 新实验：强制新建 wandb run。续跑时改为: WANDB_RUN_ID=xxx WANDB_RESUME=allow
+RESUME_FROM_CHECKPOINT="${RESUME_FROM_CHECKPOINT:-0}"
 
 cd "${PROJECT_ROOT}"
 source "${VENV_PATH}"
@@ -100,8 +100,14 @@ if [[ -z "${WANDB_API_KEY:-}" ]]; then
   exit 1
 fi
 export WANDB_API_KEY
-export WANDB_RUN_ID
-export WANDB_RESUME=allow
+# 默认开新 wandb run；仅当显式传入 WANDB_RUN_ID 时才 resume
+if [[ -n "${WANDB_RUN_ID:-}" ]]; then
+  export WANDB_RUN_ID
+  export WANDB_RESUME="${WANDB_RESUME:-allow}"
+else
+  unset WANDB_RUN_ID
+  unset WANDB_RESUME
+fi
 
 # 若只在 /root/.cache 登过 HF，把 token 同步到 HF_HOME，避免 gated 模型 401
 if [[ ! -f "${HF_HOME}/token" && -f /root/.cache/huggingface/token ]]; then
@@ -118,15 +124,23 @@ echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
 echo "DATASET_ROOT=${DATASET_ROOT}"
 echo "BASE_MODEL_PATH=${BASE_MODEL_PATH}"
 echo "OUTPUT_DIR=${OUTPUT_DIR}"
+echo "EMBODIMENT_TAG=${EMBODIMENT_TAG}"
+echo "MODALITY_CONFIG_PATH=${MODALITY_CONFIG_PATH}"
 echo "HF_HOME=${HF_HOME}"
 echo "COSMOS_REASON2_PATH=${COSMOS_REASON2_PATH:-<unset; launch_finetune will scan HF_HUB_CACHE>}"
 echo "TORCH_HOME=${TORCH_HOME}"
 echo "TMPDIR=${TMPDIR}"
 echo "UV_CACHE_DIR=${UV_CACHE_DIR}"
 echo "WANDB_DIR=${WANDB_DIR}"
-echo "WANDB_RUN_ID=${WANDB_RUN_ID}"
-echo "WANDB_RESUME=${WANDB_RESUME}"
+echo "WANDB_RUN_ID=${WANDB_RUN_ID:-<new run>}"
+echo "WANDB_RESUME=${WANDB_RESUME:-<unset>}"
+echo "RESUME_FROM_CHECKPOINT=${RESUME_FROM_CHECKPOINT}"
 echo "MAX_STEPS=${MAX_STEPS}"
+
+RESUME_ARGS=()
+if [[ "${RESUME_FROM_CHECKPOINT}" == "1" || "${RESUME_FROM_CHECKPOINT}" == "true" ]]; then
+  RESUME_ARGS+=(--resume-from-checkpoint)
+fi
 
 python -m torch.distributed.run \
   --nproc_per_node="${NUM_GPUS}" \
@@ -141,7 +155,8 @@ python -m torch.distributed.run \
   --max-steps "${MAX_STEPS}" \
   --save-steps "${SAVE_STEPS}" \
   --global-batch-size "${GLOBAL_BATCH_SIZE}" \
+  --learning-rate "${LEARNING_RATE}" \
   --dataloader-num-workers "${DATALOADER_NUM_WORKERS}" \
   --wandb-project "${WANDB_PROJECT}" \
-  --resume-from-checkpoint \
+  "${RESUME_ARGS[@]}" \
   --use-wandb
