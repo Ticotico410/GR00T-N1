@@ -1,0 +1,55 @@
+{
+    "state": {
+        "left_hand": {
+            "start": 0,
+            "end": 6,
+            "original_key": "observation.state.hand_state"
+        },
+        "right_hand": {
+            "start": 6,
+            "end": 12,
+            "original_key": "observation.state.hand_state"
+        },
+        "robot_qpos": {
+            "start": 7,
+            "end": 36,
+            "original_key": "observation.state.robot_q_current"
+        }
+    },
+    "action": {
+        "frame": {
+            "start": 0,
+            "end": 82,
+            "original_key": "action.frame"
+        },
+        "left_hand": {
+            "start": 0,
+            "end": 6,
+            "original_key": "action.hand_cmd"
+        },
+        "right_hand": {
+            "start": 6,
+            "end": 12,
+            "original_key": "action.hand_cmd"
+        }
+    },
+    "video": {
+        "head_stereo_left": {
+            "original_key": "observation.images.head_stereo_left"
+        },
+        "head_stereo_right": {
+            "original_key": "observation.images.head_stereo_right"
+        },
+        "wrist_left": {
+            "original_key": "observation.images.wrist_left"
+        },
+        "wrist_right": {
+            "original_key": "observation.images.wrist_right"
+        }
+    },
+    "annotation": {
+        "human.task_description": {
+            "original_key": "task_index"
+        }
+    }
+}

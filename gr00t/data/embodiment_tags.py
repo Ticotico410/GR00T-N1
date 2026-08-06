@@ -42,6 +42,7 @@ class EmbodimentTag(Enum):
     Pre-registered posttrain tags (require finetuned checkpoint):
     - UNITREE_G1           -> "unitree_g1_full_body_with_waist_height_nav_cmd"
     - UNITREE_G1_SONIC     -> "unitree_g1_sonic"
+    - UNITREE_G1_SMPL      -> "unitree_g1_smpl"
     - SIMPLER_ENV_GOOGLE   -> "simpler_env_google"
     - SIMPLER_ENV_WIDOWX   -> "simpler_env_widowx"
     - LIBERO_PANDA         -> "libero_sim"
@@ -50,6 +51,7 @@ class EmbodimentTag(Enum):
     - NEW_EMBODIMENT        -> "new_embodiment"
     - ROBOCASA_PANDA_OMRON  -> "robocasa_panda_omron"
     - ROBOCASA_GR1_TABLETOP -> "robocasa_gr1_tabletop"
+    - UNITREE_G1_SMPL       -> "unitree_g1_smpl"
 
     Use ``EmbodimentTag.resolve(s)`` to look up a tag by name or value,
     case-insensitively.
@@ -163,6 +165,14 @@ class EmbodimentTag(Enum):
     (head stereo + wrist_right). Uses the custom-embodiment finetuning projector slot.
     """
 
+    UNITREE_G1_SMPL = "unitree_g1_smpl"
+    """
+    Real-world Unitree G1 predicting SMPL skeletal actions (82-dim frame) + hand
+    commands (12). State uses robot joint qpos only (29, drops root 7 of
+    robot_q_current) plus hand_state (12). Same 4-camera setup as WBC.
+    Uses the custom-embodiment finetuning projector slot.
+    """
+
     @classmethod
     def resolve(cls, tag: "str | EmbodimentTag") -> "EmbodimentTag":
         """Resolve a string to an EmbodimentTag, case-insensitively.
@@ -243,6 +253,7 @@ FINETUNE_ONLY_TAGS: frozenset[EmbodimentTag] = frozenset(
         EmbodimentTag.UNITREE_G1_WBC,
         EmbodimentTag.UNITREE_G1_UPPER_BODY,
         EmbodimentTag.UNITREE_G1_UPPER_RIGHT_HAND,
+        EmbodimentTag.UNITREE_G1_SMPL,
     }
 )
 """Tags for custom robots (finetuning only, not in any shipped checkpoint)."""

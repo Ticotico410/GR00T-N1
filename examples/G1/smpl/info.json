@@ -1,0 +1,319 @@
+{
+    "codebase_version": "v2.1",
+    "robot_type": "unitree_g1_brainco",
+    "total_episodes": 150,
+    "total_frames": 258825,
+    "total_tasks": 1,
+    "chunks_size": 1000,
+    "fps": 30,
+    "splits": {
+        "train": "0:150"
+    },
+    "data_path": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
+    "video_path": "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
+    "features": {
+        "observation.images.head_stereo_left": {
+            "dtype": "video",
+            "shape": [
+                480,
+                640,
+                3
+            ],
+            "names": [
+                "height",
+                "width",
+                "channel"
+            ],
+            "info": {
+                "video.height": 480,
+                "video.width": 640,
+                "video.codec": "av1",
+                "video.pix_fmt": "yuv420p",
+                "video.is_depth_map": false,
+                "video.fps": 30,
+                "video.channels": 3,
+                "has_audio": false
+            }
+        },
+        "observation.images.head_stereo_right": {
+            "dtype": "video",
+            "shape": [
+                480,
+                640,
+                3
+            ],
+            "names": [
+                "height",
+                "width",
+                "channel"
+            ],
+            "info": {
+                "video.height": 480,
+                "video.width": 640,
+                "video.codec": "av1",
+                "video.pix_fmt": "yuv420p",
+                "video.is_depth_map": false,
+                "video.fps": 30,
+                "video.channels": 3,
+                "has_audio": false
+            }
+        },
+        "observation.images.wrist_left": {
+            "dtype": "video",
+            "shape": [
+                480,
+                640,
+                3
+            ],
+            "names": [
+                "height",
+                "width",
+                "channel"
+            ],
+            "info": {
+                "video.height": 480,
+                "video.width": 640,
+                "video.codec": "av1",
+                "video.pix_fmt": "yuv420p",
+                "video.is_depth_map": false,
+                "video.fps": 30,
+                "video.channels": 3,
+                "has_audio": false
+            }
+        },
+        "observation.images.wrist_right": {
+            "dtype": "video",
+            "shape": [
+                480,
+                640,
+                3
+            ],
+            "names": [
+                "height",
+                "width",
+                "channel"
+            ],
+            "info": {
+                "video.height": 480,
+                "video.width": 640,
+                "video.codec": "av1",
+                "video.pix_fmt": "yuv420p",
+                "video.is_depth_map": false,
+                "video.fps": 30,
+                "video.channels": 3,
+                "has_audio": false
+            }
+        },
+        "observation.state.robot_q_current": {
+            "dtype": "float32",
+            "shape": [
+                36
+            ],
+            "names": [
+                "robot_q_current_0",
+                "robot_q_current_1",
+                "robot_q_current_2",
+                "robot_q_current_3",
+                "robot_q_current_4",
+                "robot_q_current_5",
+                "robot_q_current_6",
+                "robot_q_current_7",
+                "robot_q_current_8",
+                "robot_q_current_9",
+                "robot_q_current_10",
+                "robot_q_current_11",
+                "robot_q_current_12",
+                "robot_q_current_13",
+                "robot_q_current_14",
+                "robot_q_current_15",
+                "robot_q_current_16",
+                "robot_q_current_17",
+                "robot_q_current_18",
+                "robot_q_current_19",
+                "robot_q_current_20",
+                "robot_q_current_21",
+                "robot_q_current_22",
+                "robot_q_current_23",
+                "robot_q_current_24",
+                "robot_q_current_25",
+                "robot_q_current_26",
+                "robot_q_current_27",
+                "robot_q_current_28",
+                "robot_q_current_29",
+                "robot_q_current_30",
+                "robot_q_current_31",
+                "robot_q_current_32",
+                "robot_q_current_33",
+                "robot_q_current_34",
+                "robot_q_current_35"
+            ]
+        },
+        "observation.state.hand_state": {
+            "dtype": "float32",
+            "shape": [
+                12
+            ],
+            "names": [
+                "hand_state_0",
+                "hand_state_1",
+                "hand_state_2",
+                "hand_state_3",
+                "hand_state_4",
+                "hand_state_5",
+                "hand_state_6",
+                "hand_state_7",
+                "hand_state_8",
+                "hand_state_9",
+                "hand_state_10",
+                "hand_state_11"
+            ]
+        },
+        "action.frame": {
+            "dtype": "float32",
+            "shape": [
+                82
+            ],
+            "names": [
+                "frame_0",
+                "frame_1",
+                "frame_2",
+                "frame_3",
+                "frame_4",
+                "frame_5",
+                "frame_6",
+                "frame_7",
+                "frame_8",
+                "frame_9",
+                "frame_10",
+                "frame_11",
+                "frame_12",
+                "frame_13",
+                "frame_14",
+                "frame_15",
+                "frame_16",
+                "frame_17",
+                "frame_18",
+                "frame_19",
+                "frame_20",
+                "frame_21",
+                "frame_22",
+                "frame_23",
+                "frame_24",
+                "frame_25",
+                "frame_26",
+                "frame_27",
+                "frame_28",
+                "frame_29",
+                "frame_30",
+                "frame_31",
+                "frame_32",
+                "frame_33",
+                "frame_34",
+                "frame_35",
+                "frame_36",
+                "frame_37",
+                "frame_38",
+                "frame_39",
+                "frame_40",
+                "frame_41",
+                "frame_42",
+                "frame_43",
+                "frame_44",
+                "frame_45",
+                "frame_46",
+                "frame_47",
+                "frame_48",
+                "frame_49",
+                "frame_50",
+                "frame_51",
+                "frame_52",
+                "frame_53",
+                "frame_54",
+                "frame_55",
+                "frame_56",
+                "frame_57",
+                "frame_58",
+                "frame_59",
+                "frame_60",
+                "frame_61",
+                "frame_62",
+                "frame_63",
+                "frame_64",
+                "frame_65",
+                "frame_66",
+                "frame_67",
+                "frame_68",
+                "frame_69",
+                "frame_70",
+                "frame_71",
+                "frame_72",
+                "frame_73",
+                "frame_74",
+                "frame_75",
+                "frame_76",
+                "frame_77",
+                "frame_78",
+                "frame_79",
+                "frame_80",
+                "frame_81"
+            ]
+        },
+        "action.hand_cmd": {
+            "dtype": "float32",
+            "shape": [
+                12
+            ],
+            "names": [
+                "hand_cmd_0",
+                "hand_cmd_1",
+                "hand_cmd_2",
+                "hand_cmd_3",
+                "hand_cmd_4",
+                "hand_cmd_5",
+                "hand_cmd_6",
+                "hand_cmd_7",
+                "hand_cmd_8",
+                "hand_cmd_9",
+                "hand_cmd_10",
+                "hand_cmd_11"
+            ]
+        },
+        "timestamp": {
+            "dtype": "float32",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "frame_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "episode_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "task_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        }
+    },
+    "total_chunks": 1,
+    "total_videos": 150
+}
