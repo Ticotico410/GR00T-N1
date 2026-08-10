@@ -28,6 +28,10 @@ from gr00t.data.state_action.state_action_processor import RootRelative6D
 from gr00t.policy import BasePolicy
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 from gr00t.policy.server_client import PolicyClient
+import matplotlib
+
+# Headless save: avoid X11 BadAlloc on large multi-row plots (e.g. SMPL 94D).
+matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 import numpy as np
 import pandas as pd
@@ -39,19 +43,20 @@ warnings.simplefilter("ignore", category=FutureWarning)
 """
 Example commands:
 
-NOTE: provide --model_path to load up the model checkpoint in this script,
-        else it will use the default host and port via RobotInferenceClient
+Absolute-space open loop (default; omit --relative-root-mode or use absolute):
+    python gr00t/eval/open_loop_eval.py --model-path ...
 
-Absolute-space open loop (default, original behavior):
-    python gr00t/eval/open_loop_eval.py --model-path ... --traj-ids 0
+WBC relative 9D root open loop (local xyz + rot6d, process_xyz=True):
+    python gr00t/eval/open_loop_eval.py --model-path ... --relative-root-mode trans9d
 
-Relative 9D root open loop (local xyz + rot6d, same transform as training):
-    python gr00t/eval/open_loop_eval.py --model-path ... --root-eval-space relative9d
+SMPL relative rot6D open loop (frame[72:76] → 6D, process_xyz=False):
+    python gr00t/eval/open_loop_eval.py --model-path ... --relative-root-mode rot6d
 
 """
 
 ROOT_ACTION_KEY = "robot_root"
-ROOT_RELATIVE9D_LABELS = [
+SMPL_FRAME_KEY = "frame"
+TRANS9D_LABELS = [
     "dx",
     "dy",
     "dz",
@@ -62,6 +67,8 @@ ROOT_RELATIVE9D_LABELS = [
     "r6d4",
     "r6d5",
 ]
+ROT6D_LABELS = ["r6d0", "r6d1", "r6d2", "r6d3", "r6d4", "r6d5"]
+VALID_RELATIVE_ROOT_MODES = ("absolute", "trans9d", "rot6d")
 
 
 def plot_trajectory_results(
@@ -101,8 +108,11 @@ def plot_trajectory_results(
         logging.warning("No valid indices to plot")
         return
 
-    # Always plot and save
-    fig, axes = plt.subplots(nrows=num_plots, ncols=1, figsize=(8, 4 * num_plots))
+    # Cap row height so high-dim actions (e.g. SMPL 94D) don't allocate huge pixmaps.
+    row_h = 1.5 if num_plots > 48 else (2.5 if num_plots > 24 else 4.0)
+    fig, axes = plt.subplots(
+        nrows=num_plots, ncols=1, figsize=(10, row_h * num_plots), dpi=80
+    )
 
     # Handle case where there's only one subplot
     if num_plots == 1:
@@ -153,9 +163,9 @@ def plot_trajectory_results(
 
     # Create filename with trajectory ID
     Path(save_plot_path).parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(save_plot_path)
+    plt.savefig(save_plot_path, dpi=80, bbox_inches="tight")
 
-    plt.close()  # Close the figure to free memory
+    plt.close(fig)  # Close the figure to free memory
 
 
 def _stack_traj_column(traj: pd.DataFrame, column: str) -> np.ndarray:
@@ -170,6 +180,51 @@ def _rotation_geodesic_deg(rot6d_a: np.ndarray, rot6d_b: np.ndarray) -> np.ndarr
     trace = rot_err[:, 0, 0] + rot_err[:, 1, 1] + rot_err[:, 2, 2]
     cos_angle = np.clip((trace - 1.0) * 0.5, -1.0, 1.0)
     return np.degrees(np.arccos(cos_angle))
+
+
+def _smpl_frame_to_relative_rot6d(frame: np.ndarray, reference_root: np.ndarray) -> np.ndarray:
+    """Convert SMPL ``frame`` hip orientation to relative rot6D (T, 6).
+
+    Accepts absolute 82D (quat at [72:76]) or processed 84D (rot6d at [72:78]).
+    Uses the same RootRelative6D path as training with ``process_xyz=False``.
+    """
+    frame = np.asarray(frame, dtype=np.float32)
+    reference_root = np.asarray(reference_root, dtype=np.float32).reshape(-1)
+    if reference_root.shape[0] != RootRelative6D.RAW_DIM:
+        raise ValueError(
+            f"Expected reference robot_root ({RootRelative6D.RAW_DIM},), got {reference_root.shape}"
+        )
+
+    squeeze = False
+    if frame.ndim == 1:
+        frame = frame[None, ...]
+        squeeze = True
+
+    dim = int(frame.shape[-1])
+    if dim == RootRelative6D.FRAME_PROCESSED_DIM:
+        # Decode 84D relative → absolute 82D with the same reference, then re-encode.
+        frame = RootRelative6D.splice_frame_root(
+            frame,
+            RootRelative6D.to_absolute(
+                RootRelative6D.pack_frame_root(frame, relative=True),
+                reference_root,
+            ),
+        )
+        dim = int(frame.shape[-1])
+
+    if dim != RootRelative6D.FRAME_RAW_DIM:
+        raise ValueError(
+            f"SMPL frame must be {RootRelative6D.FRAME_RAW_DIM}D absolute or "
+            f"{RootRelative6D.FRAME_PROCESSED_DIM}D relative, got {dim}D"
+        )
+
+    relative_root = RootRelative6D.to_relative(
+        RootRelative6D.pack_frame_root(frame),
+        reference_root,
+        process_xyz=False,
+    )
+    out = relative_root[:, 3:9]
+    return out[0] if squeeze else out
 
 
 def parse_observation_gr00t(
@@ -224,7 +279,7 @@ def evaluate_single_trajectory(
     steps=300,
     action_horizon=16,
     save_plot_path=None,
-    root_eval_space: str = "absolute",
+    relative_root_mode: str = "absolute",
     ema_alpha: float | None = None,
 ):
     # Ensure steps doesn't exceed trajectory length
@@ -241,37 +296,65 @@ def evaluate_single_trajectory(
         loader.modality_configs["action"].modality_keys if modality_keys is None else modality_keys
     )
 
-    if root_eval_space == "relative9d":
+    if relative_root_mode == "trans9d":
         if ROOT_ACTION_KEY not in loader.modality_configs["action"].modality_keys:
             raise ValueError(
-                f"--root-eval-space relative9d requires action key '{ROOT_ACTION_KEY}' "
+                f"--relative-root-mode trans9d requires action key '{ROOT_ACTION_KEY}' "
                 f"in modality config, got {loader.modality_configs['action'].modality_keys}"
             )
         if ROOT_ACTION_KEY not in loader.modality_configs["state"].modality_keys:
             raise ValueError(
-                f"--root-eval-space relative9d requires state key '{ROOT_ACTION_KEY}' "
+                f"--relative-root-mode trans9d requires state key '{ROOT_ACTION_KEY}' "
                 f"in modality config, got {loader.modality_configs['state'].modality_keys}"
             )
         if modality_keys is not None and modality_keys != [ROOT_ACTION_KEY]:
             logging.warning(
-                "relative9d mode only evaluates '%s'; ignoring --modality-keys %s",
+                "trans9d mode only evaluates '%s'; ignoring --modality-keys %s",
                 ROOT_ACTION_KEY,
                 modality_keys,
             )
         action_keys = [ROOT_ACTION_KEY]
         logging.info(
-            "Root eval space=relative9d: compare GT/pred in Unitree local-xyz+rot6d (9D)"
+            "Root eval space=trans9d: compare GT/pred in Unitree local-xyz+rot6d (9D)"
+        )
+    elif relative_root_mode == "rot6d":
+        if SMPL_FRAME_KEY not in loader.modality_configs["action"].modality_keys:
+            raise ValueError(
+                f"--relative-root-mode rot6d requires action key '{SMPL_FRAME_KEY}' "
+                f"in modality config, got {loader.modality_configs['action'].modality_keys}"
+            )
+        if ROOT_ACTION_KEY not in loader.modality_configs["state"].modality_keys:
+            raise ValueError(
+                f"--relative-root-mode rot6d requires state key '{ROOT_ACTION_KEY}' "
+                f"(reference for hip quat). Got state keys "
+                f"{loader.modality_configs['state'].modality_keys}. "
+                "Use a SMPL-rel checkpoint / modality that includes robot_root."
+            )
+        if modality_keys is not None and modality_keys != [SMPL_FRAME_KEY]:
+            logging.warning(
+                "rot6d mode only evaluates hip rot6D from '%s'; ignoring --modality-keys %s",
+                SMPL_FRAME_KEY,
+                modality_keys,
+            )
+        action_keys = [SMPL_FRAME_KEY]
+        logging.info(
+            "Root eval space=rot6d: compare GT/pred hip relative rot6D "
+            "(frame quat→6D, process_xyz=False)"
         )
 
     pred_action_across_time = []
-    # relative9d: accumulate (H, 9) segments converted with the same reference as training
-    pred_relative9d_segments: list[np.ndarray] = []
-    gt_relative9d_segments: list[np.ndarray] = []
+    # trans9d / rot6d: accumulate converted relative segments
+    pred_trans9d_segments: list[np.ndarray] = []
+    gt_trans9d_segments: list[np.ndarray] = []
 
     gt_root_abs = None
     state_root_abs = None
-    if root_eval_space == "relative9d":
+    gt_frame_abs = None
+    if relative_root_mode == "trans9d":
         gt_root_abs = _stack_traj_column(traj, f"action.{ROOT_ACTION_KEY}")
+        state_root_abs = _stack_traj_column(traj, f"state.{ROOT_ACTION_KEY}")
+    elif relative_root_mode == "rot6d":
+        gt_frame_abs = _stack_traj_column(traj, f"action.{SMPL_FRAME_KEY}")
         state_root_abs = _stack_traj_column(traj, f"state.{ROOT_ACTION_KEY}")
 
     modality_configs = deepcopy(loader.modality_configs)
@@ -313,7 +396,7 @@ def evaluate_single_trajectory(
             root_out[:horizon] = root_smoothed
             action_chunk[root_key] = root_out
 
-        if root_eval_space == "relative9d":
+        if relative_root_mode == "trans9d":
             assert gt_root_abs is not None and state_root_abs is not None
             pred_abs_chunk = np.asarray(action_chunk[f"action.{ROOT_ACTION_KEY}"])[:horizon]
             if pred_abs_chunk.ndim == 1:
@@ -323,14 +406,30 @@ def evaluate_single_trajectory(
             if reference.ndim == 2:
                 reference = reference[-1]
 
-            pred_relative9d = RootRelative6D.to_relative(
+            pred_trans9d = RootRelative6D.to_relative(
                 pred_abs_chunk, reference, process_xyz=True
             )
 
-            gt_relative9d_segments.append(
+            gt_trans9d_segments.append(
                 RootRelative6D.to_relative(gt_abs_chunk, reference, process_xyz=True)
             )
-            pred_relative9d_segments.append(pred_relative9d)
+            pred_trans9d_segments.append(pred_trans9d)
+        elif relative_root_mode == "rot6d":
+            assert gt_frame_abs is not None and state_root_abs is not None
+            pred_frame = np.asarray(action_chunk[f"action.{SMPL_FRAME_KEY}"])[:horizon]
+            if pred_frame.ndim == 1:
+                pred_frame = pred_frame[None, :]
+            gt_frame = gt_frame_abs[step_count : step_count + horizon]
+            reference = state_root_abs[step_count]
+            if reference.ndim == 2:
+                reference = reference[-1]
+
+            gt_trans9d_segments.append(
+                _smpl_frame_to_relative_rot6d(gt_frame, reference)
+            )
+            pred_trans9d_segments.append(
+                _smpl_frame_to_relative_rot6d(pred_frame, reference)
+            )
         else:
             for j in range(horizon):
                 # NOTE: concat_pred_action = action[f"action.{modality_keys[0]}"][j]
@@ -350,13 +449,19 @@ def evaluate_single_trajectory(
             np_dict[column] = np.vstack([arr for arr in traj[column]])
         return np.concatenate([np_dict[column] for column in columns], axis=-1)
 
-    if root_eval_space == "relative9d":
+    if relative_root_mode == "trans9d":
         # State is absolute 7D; relative action is 9D — skip state overlay in plots.
         state_joints_across_time = np.zeros((actual_steps, 0))
-        gt_action_across_time = np.concatenate(gt_relative9d_segments, axis=0)[:actual_steps]
-        pred_action_across_time = np.concatenate(pred_relative9d_segments, axis=0)[:actual_steps]
-        dim_labels = ROOT_RELATIVE9D_LABELS
-        title_note = "relative9d (local xyz + rot6d)"
+        gt_action_across_time = np.concatenate(gt_trans9d_segments, axis=0)[:actual_steps]
+        pred_action_across_time = np.concatenate(pred_trans9d_segments, axis=0)[:actual_steps]
+        dim_labels = TRANS9D_LABELS
+        title_note = "trans9d (local xyz + rot6d)"
+    elif relative_root_mode == "rot6d":
+        state_joints_across_time = np.zeros((actual_steps, 0))
+        gt_action_across_time = np.concatenate(gt_trans9d_segments, axis=0)[:actual_steps]
+        pred_action_across_time = np.concatenate(pred_trans9d_segments, axis=0)[:actual_steps]
+        dim_labels = ROT6D_LABELS
+        title_note = "rot6d (hip relative rot6d)"
     else:
         # plot the joints (original absolute-space logic)
         state_joints_across_time = extract_state_joints(
@@ -392,7 +497,7 @@ def evaluate_single_trajectory(
     logging.info(f"Unnormalized Action MSE across single traj: {mse}")
     logging.info(f"Unnormalized Action MAE across single traj: {mae}")
 
-    if root_eval_space == "relative9d":
+    if relative_root_mode == "trans9d":
         pos_mse = np.mean((gt_action_across_time[:, :3] - pred_action_across_time[:, :3]) ** 2)
         pos_mae = np.mean(np.abs(gt_action_across_time[:, :3] - pred_action_across_time[:, :3]))
         rot_mse = np.mean((gt_action_across_time[:, 3:] - pred_action_across_time[:, 3:]) ** 2)
@@ -400,12 +505,22 @@ def evaluate_single_trajectory(
         rot_geodesic_deg = _rotation_geodesic_deg(
             gt_action_across_time[:, 3:], pred_action_across_time[:, 3:]
         )
-        logging.info(f"relative9d position MSE (dx,dy,dz): {pos_mse}")
-        logging.info(f"relative9d position MAE (dx,dy,dz): {pos_mae}")
-        logging.info(f"relative9d rot6d MSE: {rot_mse}")
-        logging.info(f"relative9d rot6d MAE: {rot_mae}")
+        logging.info(f"trans9d position MSE (dx,dy,dz): {pos_mse}")
+        logging.info(f"trans9d position MAE (dx,dy,dz): {pos_mae}")
+        logging.info(f"trans9d rot6d MSE: {rot_mse}")
+        logging.info(f"trans9d rot6d MAE: {rot_mae}")
         logging.info(
-            "relative9d rotation geodesic deg: mean=%.4f median=%.4f max=%.4f",
+            "trans9d rotation geodesic deg: mean=%.4f median=%.4f max=%.4f",
+            float(np.mean(rot_geodesic_deg)),
+            float(np.median(rot_geodesic_deg)),
+            float(np.max(rot_geodesic_deg)),
+        )
+    elif relative_root_mode == "rot6d":
+        rot_geodesic_deg = _rotation_geodesic_deg(
+            gt_action_across_time, pred_action_across_time
+        )
+        logging.info(
+            "rot6d geodesic deg: mean=%.4f median=%.4f max=%.4f",
             float(np.mean(rot_geodesic_deg)),
             float(np.median(rot_geodesic_deg)),
             float(np.max(rot_geodesic_deg)),
@@ -472,10 +587,11 @@ class ArgsConfig:
     video_backend: str = "pyav"
     """Video decode backend. Use pyav for AV1 datasets (torchcodec often fails)."""
 
-    root_eval_space: str = "absolute"
-    """Action comparison space for open-loop plots/metrics.
-    - absolute: original behavior (decoded absolute actions, all modality keys)
-    - relative9d: Unitree robot_root only, local xyz + rot6d (same as training target)
+    relative_root_mode: str = "absolute"
+    """Relative-root open-loop comparison mode:
+    - absolute: decoded absolute actions (default)
+    - trans9d: WBC robot_root → local xyz + rot6d (process_xyz=True)
+    - rot6d: SMPL frame hip quat → relative rot6d only (process_xyz=False)
     """
 
     ema_alpha: float | None = None
@@ -487,9 +603,10 @@ def main(args: ArgsConfig):
     # Set up logging
     logging.basicConfig(level=logging.INFO)
 
-    if args.root_eval_space not in ("absolute", "relative9d"):
+    if args.relative_root_mode not in VALID_RELATIVE_ROOT_MODES:
         raise ValueError(
-            f"root_eval_space must be 'absolute' or 'relative9d', got {args.root_eval_space!r}"
+            f"relative_root_mode must be one of {VALID_RELATIVE_ROOT_MODES}, "
+            f"got {args.relative_root_mode!r}"
         )
 
     # Download model checkpoint if it's an S3 path
@@ -536,7 +653,7 @@ def main(args: ArgsConfig):
 
     logging.info(f"Dataset length: {len(dataset)}")
     logging.info(f"Running evaluation on trajectories: {args.traj_ids}")
-    logging.info(f"root_eval_space={args.root_eval_space}")
+    logging.info(f"relative_root_mode={args.relative_root_mode}")
 
     all_mse = []
     all_mae = []
@@ -556,7 +673,7 @@ def main(args: ArgsConfig):
             steps=args.steps,
             action_horizon=args.action_horizon,
             save_plot_path=args.save_plot_path,
-            root_eval_space=args.root_eval_space,
+            relative_root_mode=args.relative_root_mode,
             ema_alpha=args.ema_alpha,
         )
         logging.info(f"MSE for trajectory {traj_id}: {mse}, MAE: {mae}")
