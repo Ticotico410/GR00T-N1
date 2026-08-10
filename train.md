@@ -41,7 +41,7 @@ python gr00t/data/stats.py \
   --modality-config-path examples/G1/sonic/unitree_g1_sonic_config.py
 
 # 2. Launch the training script on the training server (tmux)
-tmux new -s train
+tmux new -s train_gr00t_n1d7
 source /sh/ycb/venvs/gr00t_n1d7/bin/activate
 # optional: wandb login --relogin   # interactive; or: wandb login --relogin "$WANDB_API_KEY"
 cd /sh/ycb/model/GR00T
@@ -50,7 +50,7 @@ bash train.sh
 
 # 3. Detach / reattach tmux
 Detach: Ctrl-b then d
-Reattach: tmux attach -t train
+Reattach: tmux attach -t train_gr00t_n1d7
 List sessions: tmux ls
 
 # Kill the training process

@@ -15,19 +15,21 @@
 
 """Modality config for Unitree G1 predicting SMPL skeletal actions.
 
-Action (94 dims):
-  - frame:      82-dim SMPL skeletal representation
+Action (96 dims after processor; 94 raw in parquet):
+  - frame:      82-dim SMPL skeletal -> 84-dim after hip-root relative rot6D
+                (frame[72:76] wxyz quat, relative to state robot_root via RootRelative6D)
   - left_hand:  6-dim hand command
   - right_hand: 6-dim hand command
 
-State (41 dims):
+State (48 dims):
   - left_hand / right_hand: hand_state (12)
-  - robot_qpos: robot_q_current[7:36] (29) — drops root xyz+quat (first 7)
+  - robot_root: robot_q_current[0:7] (xyz + wxyz quat) — reference for frame hip rotation
+  - robot_qpos: robot_q_current[7:36] (29 joint angles)
 
 Video: head stereo + both wrists (same as WBC).
 
-All actions use ABSOLUTE: SMPL frame has no matching state space for relative
-conversion; hand_cmd follows the same absolute convention.
+Hand actions use ABSOLUTE. SMPL frame hip quaternion is converted with the same
+RootRelative6D path as WBC robot_root (relative rotation 6D w.r.t. robot_root).
 """
 
 from gr00t.configs.data.embodiment_configs import register_modality_config
@@ -51,16 +53,17 @@ unitree_g1_smpl_config = {
             "wrist_right",
         ],
     ),
-    # State: left_hand (6) + right_hand (6) + robot_qpos (29) = 41 dims
+    # State: left_hand (6) + right_hand (6) + robot_root (7) + robot_qpos (29) = 48 dims
     "state": ModalityConfig(
         delta_indices=[0],
         modality_keys=[
             "left_hand",
             "right_hand",
+            "robot_root",
             "robot_qpos",
         ],
     ),
-    # Action: predict horizon @ 30 fps; 82 + 6 + 6 = 94 dims
+    # Action: predict horizon @ 30 fps; 84 + 6 + 6 = 96 dims after relative rot6D
     "action": ModalityConfig(
         delta_indices=list(range(0, 50)),
         modality_keys=[

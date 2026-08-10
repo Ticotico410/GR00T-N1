@@ -10,6 +10,11 @@
             "end": 12,
             "original_key": "observation.state.hand_state"
         },
+        "robot_root": {
+            "start": 0,
+            "end": 7,
+            "original_key": "observation.state.robot_q_current"
+        },
         "robot_qpos": {
             "start": 7,
             "end": 36,

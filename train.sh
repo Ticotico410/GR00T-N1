@@ -4,8 +4,8 @@ set -euo pipefail
 PROJECT_ROOT="/sh/ycb/model/GR00T"
 VENV_PATH="/sh/ycb/venvs/gr00t_n1d7/bin/activate"
 CACHE_ROOT="/sh/ycb/.cache"
-DATASET_ROOT="/sh/datasets/g1/tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/lerobot_v2.1"
-EXP_NAME="GR00T_N1d7_g1_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco"
+DATASET_ROOT="/sh/datasets/g1/smpl/tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/lerobot_v2.1"
+EXP_NAME="GR00T_N1d7_g1_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco"
 CHECKPOINT_BASE_DIR="/sh/ycb/checkpoints"
 OUTPUT_DIR="${CHECKPOINT_BASE_DIR}/${EXP_NAME}"
 BASE_MODEL_PATH="${CACHE_ROOT}/gr00t_n1d7/GR00T-N1.7-3B"
@@ -15,13 +15,18 @@ MODALITY_CONFIG_PATH="examples/G1/smpl/unitree_g1_smpl_config.py"
 NUM_GPUS=2
 CUDA_DEVICES="0,1"
 GLOBAL_BATCH_SIZE=64
-MAX_STEPS=100000
+MAX_STEPS=140000
 SAVE_STEPS=10000
 LEARNING_RATE=1e-4
 DATALOADER_NUM_WORKERS=1
-WANDB_PROJECT="GR00T_N1d7_g1_smpl_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco"
-# 新实验：强制新建 wandb run。续跑时改为: WANDB_RUN_ID=xxx WANDB_RESUME=allow
-RESUME_FROM_CHECKPOINT="${RESUME_FROM_CHECKPOINT:-0}"
+WANDB_PROJECT="GR00T_N1d7_g1_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco"
+
+# Init 
+# RESUME_FROM_CHECKPOINT="${RESUME_FROM_CHECKPOINT:-0}"
+# Resume
+export WANDB_RUN_ID=ahfu3a6i
+export WANDB_RESUME=allow
+RESUME_FROM_CHECKPOINT=1
 
 cd "${PROJECT_ROOT}"
 source "${VENV_PATH}"

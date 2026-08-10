@@ -78,7 +78,8 @@ EMBODIMENT_TAG_TO_PROJECTOR_INDEX = {
     "unitree_g1_wbc": 10,
     "unitree_g1_upper_body": 10,
     "unitree_g1_upper_right_hand": 10,
-}
+    "unitree_g1_smpl": 12,
+    }
 
 
 def build_processor(model_name: str, transformers_loading_kwargs: dict) -> Qwen3VLProcessor:

@@ -24,7 +24,7 @@ import warnings
 from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader
 from gr00t.data.dataset.sharded_single_step_dataset import extract_step_data
 from gr00t.data.embodiment_tags import EmbodimentTag
-from gr00t.data.state_action.state_action_processor import UnitreeRootRelative6D
+from gr00t.data.state_action.state_action_processor import RootRelative6D
 from gr00t.policy import BasePolicy
 from gr00t.policy.gr00t_policy import Gr00tPolicy
 from gr00t.policy.server_client import PolicyClient
@@ -164,8 +164,8 @@ def _stack_traj_column(traj: pd.DataFrame, column: str) -> np.ndarray:
 
 def _rotation_geodesic_deg(rot6d_a: np.ndarray, rot6d_b: np.ndarray) -> np.ndarray:
     """Geodesic angle (degrees) between two batches of rot6d orientations."""
-    rot_a = UnitreeRootRelative6D.rotation_6d_to_matrix(rot6d_a)
-    rot_b = UnitreeRootRelative6D.rotation_6d_to_matrix(rot6d_b)
+    rot_a = RootRelative6D.rotation_6d_to_matrix(rot6d_a)
+    rot_b = RootRelative6D.rotation_6d_to_matrix(rot6d_b)
     rot_err = np.einsum("tij,tkj->tik", rot_a, rot_b)
     trace = rot_err[:, 0, 0] + rot_err[:, 1, 1] + rot_err[:, 2, 2]
     cos_angle = np.clip((trace - 1.0) * 0.5, -1.0, 1.0)
@@ -323,10 +323,10 @@ def evaluate_single_trajectory(
             if reference.ndim == 2:
                 reference = reference[-1]
 
-            pred_relative9d = UnitreeRootRelative6D.to_relative(pred_abs_chunk, reference)
+            pred_relative9d = RootRelative6D.to_relative(pred_abs_chunk, reference)
 
             gt_relative9d_segments.append(
-                UnitreeRootRelative6D.to_relative(gt_abs_chunk, reference)
+                RootRelative6D.to_relative(gt_abs_chunk, reference)
             )
             pred_relative9d_segments.append(pred_relative9d)
         else:

@@ -287,3 +287,121 @@ class TestTrainEvalMode:
         processor.eval()
         processor.train()
         assert processor.training is True
+
+
+def _smpl_frame_stats(raw_dim: int = 82) -> dict:
+    stats = {
+        "min": np.linspace(-1.0, 1.0, raw_dim).tolist(),
+        "max": np.linspace(0.0, 2.0, raw_dim).tolist(),
+        "mean": np.zeros(raw_dim).tolist(),
+        "std": np.ones(raw_dim).tolist(),
+        "q01": (np.linspace(-0.9, 0.9, raw_dim)).tolist(),
+        "q99": (np.linspace(0.1, 1.9, raw_dim)).tolist(),
+    }
+    return stats
+
+
+def _random_unit_quaternions(num: int) -> np.ndarray:
+    q = np.random.randn(num, 4).astype(np.float32)
+    q /= np.linalg.norm(q, axis=-1, keepdims=True)
+    return q
+
+
+class TestSmplFrameRelative6D:
+    def test_smpl_frame_relative_roundtrip(self):
+        from gr00t.data.state_action.state_action_processor import RootRelative6D
+
+        horizon = 8
+        raw = np.random.randn(horizon, RootRelative6D.SMPL_FRAME_RAW_DIM).astype(np.float32)
+        raw[:, 72:76] = _random_unit_quaternions(horizon)
+        reference = np.zeros(RootRelative6D.RAW_DIM, dtype=np.float32)
+        reference[3:7] = _random_unit_quaternions(1)[0]
+
+        processed = RootRelative6D.smpl_frame_to_relative(raw, reference)
+        recovered = RootRelative6D.smpl_frame_to_absolute(processed, reference)
+
+        assert processed.shape == (horizon, RootRelative6D.SMPL_FRAME_PROCESSED_DIM)
+        np.testing.assert_allclose(raw[:, :72], processed[:, :72])
+        np.testing.assert_allclose(raw[:, 76:], processed[:, 78:])
+        R_orig = RootRelative6D.quaternion_to_matrix(raw[:, 72:76])
+        R_rec = RootRelative6D.quaternion_to_matrix(recovered[:, 72:76])
+        np.testing.assert_allclose(R_orig, R_rec, atol=1e-5)
+
+    def test_processor_apply_unapply_roundtrip(self):
+        from gr00t.data.state_action.state_action_processor import RootRelative6D
+
+        embodiment = "unitree_g1_smpl"
+        modality_configs = {
+            embodiment: {
+                "state": {
+                    "modality_keys": ["robot_root", "robot_qpos"],
+                    "delta_indices": [0],
+                },
+                "action": {
+                    "modality_keys": ["frame"],
+                    "delta_indices": list(range(5)),
+                    "action_configs": [
+                        {
+                            "rep": "ABSOLUTE",
+                            "type": "NON_EEF",
+                            "format": "DEFAULT",
+                        }
+                    ],
+                },
+            }
+        }
+        statistics = {
+            embodiment: {
+                "state": {
+                    "robot_root": _smpl_frame_stats(RootRelative6D.RAW_DIM),
+                    "robot_qpos": _smpl_frame_stats(29),
+                },
+                "action": {
+                    "frame": _smpl_frame_stats(RootRelative6D.SMPL_FRAME_RAW_DIM),
+                },
+            }
+        }
+        proc = StateActionProcessor(
+            modality_configs=modality_configs,
+            statistics=statistics,
+            use_percentiles=False,
+            clip_outliers=False,
+        )
+        assert (
+            int(proc.norm_params[embodiment]["action"]["frame"]["dim"].item())
+            == RootRelative6D.SMPL_FRAME_PROCESSED_DIM
+        )
+
+        horizon = 5
+        raw_action = {
+            "frame": np.random.randn(horizon, RootRelative6D.SMPL_FRAME_RAW_DIM).astype(
+                np.float32
+            )
+        }
+        stats = statistics[embodiment]["action"]["frame"]
+        low = np.array(stats["min"])
+        high = np.array(stats["max"])
+        raw_action["frame"] = low + (high - low) * np.random.rand(
+            horizon, RootRelative6D.SMPL_FRAME_RAW_DIM
+        ).astype(np.float32)
+        raw_action["frame"][:, 72:76] = _random_unit_quaternions(horizon)
+
+        raw_state = {
+            "robot_root": np.zeros((1, RootRelative6D.RAW_DIM), dtype=np.float32),
+            "robot_qpos": np.random.randn(1, 29).astype(np.float32),
+        }
+        raw_state["robot_root"][0, 3:7] = _random_unit_quaternions(1)[0]
+
+        normalized = proc.apply_action(raw_action, embodiment, state=raw_state)
+        assert normalized["frame"].shape == (horizon, RootRelative6D.SMPL_FRAME_PROCESSED_DIM)
+
+        recovered = proc.unapply_action(normalized, embodiment, state=raw_state)
+        np.testing.assert_allclose(
+            recovered["frame"][:, :72], raw_action["frame"][:, :72], atol=1e-4
+        )
+        np.testing.assert_allclose(
+            recovered["frame"][:, 76:], raw_action["frame"][:, 76:], atol=1e-4
+        )
+        R_orig = RootRelative6D.quaternion_to_matrix(raw_action["frame"][:, 72:76])
+        R_rec = RootRelative6D.quaternion_to_matrix(recovered["frame"][:, 72:76])
+        np.testing.assert_allclose(R_orig, R_rec, atol=1e-5)
