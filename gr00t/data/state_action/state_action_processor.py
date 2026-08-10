@@ -20,8 +20,7 @@ Handles:
 - State normalization (min/max, mean/std, sin/cos encoding)
 - Action normalization
 - Absolute <-> Relative action representation conversion
-- Unitree G1 root conversion from xyz + quaternion to local xyz + rotation 6D
-- SMPL frame hip-root quaternion via RootRelative6D (relative to state robot_root)
+- Unitree root relative 6D via RootRelative6D (WBC robot_root / SMPL frame quat)
 - Action processing with state dependency
 """
 
@@ -55,10 +54,10 @@ class RootRelative6D:
     """Convert a Unitree whole-body action between 36D absolute and 38D relative form.
 
     Raw action layout:
-        xyz(3) + quaternion_wxyz(4) + joint_qpos(29) = 36
+        xyz(3) + quaternion_wxyz(4)
 
     Processed action layout:
-        local_delta_xyz(3) + relative_rotation_6d(6) + joint_qpos(29) = 38
+        local_delta_xyz(3) + relative_rotation_6d(6)
 
     The 6D convention matches PyTorch3D: the first two rows of the rotation
     matrix are flattened. The reference root is supplied separately and is not
@@ -72,118 +71,38 @@ class RootRelative6D:
     JOINT_DIM = 0
     EPS = 1e-8
 
-    ACTION_KEYS = frozenset({"robot_root"})
+    # robot_root (WBC 7/9D) and frame (SMPL 82/84D; body ori at [72:76]/[72:78]).
+    ACTION_KEYS = frozenset({"robot_root", "frame"})
     STATE_KEY_CANDIDATES = {
         "robot_root": ("robot_root", "robot_root_current"),
         "frame": ("robot_root", "robot_root_current"),
     }
-
-    # SMPL ``action.frame`` embeds hip-root quaternion at [72:76]; reference root
-    # comes from state ``robot_root`` (= robot_q_current[0:7], xyz + wxyz quat).
-    SMPL_FRAME_KEY = "frame"
-    SMPL_FRAME_RAW_DIM = 82
-    SMPL_FRAME_PROCESSED_DIM = 84
-    SMPL_FRAME_QUAT_SLICE = slice(72, 76)
-    SMPL_FRAME_TAIL_RAW_SLICE = slice(76, 82)
-    SMPL_FRAME_ROT6D_SLICE = slice(72, 78)
-    SMPL_FRAME_TAIL_PROCESSED_SLICE = slice(78, 84)
-
-    @classmethod
-    def is_smpl_frame_key(cls, key: str) -> bool:
-        return key == cls.SMPL_FRAME_KEY
-
-    @classmethod
-    def _pack_smpl_frame_quat_as_root(cls, frame: np.ndarray) -> np.ndarray:
-        frame = np.asarray(frame)
-        pseudo_root = np.zeros((frame.shape[0], cls.RAW_DIM), dtype=frame.dtype)
-        pseudo_root[:, 3:7] = frame[:, cls.SMPL_FRAME_QUAT_SLICE]
-        return pseudo_root
-
-    @classmethod
-    def smpl_frame_to_relative(cls, frame: np.ndarray, reference_state: np.ndarray) -> np.ndarray:
-        frame = np.asarray(frame)
-        if frame.ndim != 2 or frame.shape[-1] != cls.SMPL_FRAME_RAW_DIM:
-            raise ValueError(
-                f"Expected SMPL frame action (T, {cls.SMPL_FRAME_RAW_DIM}), got {frame.shape}"
-            )
-        if not np.all(np.isfinite(frame)):
-            raise ValueError("SMPL frame action contains NaN or Inf")
-
-        relative_root = cls.to_relative(
-            cls._pack_smpl_frame_quat_as_root(frame), reference_state
-        )
-        return np.concatenate(
-            (
-                frame[:, : cls.SMPL_FRAME_QUAT_SLICE.start],
-                relative_root[:, 3:9],
-                frame[:, cls.SMPL_FRAME_TAIL_RAW_SLICE],
-            ),
-            axis=-1,
-        )
-
-    @classmethod
-    def smpl_frame_to_absolute(cls, frame: np.ndarray, reference_state: np.ndarray) -> np.ndarray:
-        frame = np.asarray(frame)
-        if frame.ndim != 2 or frame.shape[-1] != cls.SMPL_FRAME_PROCESSED_DIM:
-            raise ValueError(
-                f"Expected processed SMPL frame action (T, {cls.SMPL_FRAME_PROCESSED_DIM}), "
-                f"got {frame.shape}"
-            )
-        if not np.all(np.isfinite(frame)):
-            raise ValueError("Processed SMPL frame action contains NaN or Inf")
-
-        pseudo_relative = np.zeros((frame.shape[0], cls.PROCESSED_DIM), dtype=frame.dtype)
-        pseudo_relative[:, 3:9] = frame[:, cls.SMPL_FRAME_ROT6D_SLICE]
-        absolute_root = cls.to_absolute(pseudo_relative, reference_state)
-        return np.concatenate(
-            (
-                frame[:, : cls.SMPL_FRAME_QUAT_SLICE.start],
-                absolute_root[:, 3:7],
-                frame[:, cls.SMPL_FRAME_TAIL_PROCESSED_SLICE],
-            ),
-            axis=-1,
-        )
-
-    @classmethod
-    def build_smpl_frame_normalization_params(
-        cls, raw_params: dict[str, np.ndarray]
-    ) -> dict[str, np.ndarray]:
-        raw_min = np.asarray(raw_params["min"])
-        raw_max = np.asarray(raw_params["max"])
-        raw_mean = np.asarray(raw_params["mean"])
-        raw_std = np.asarray(raw_params["std"])
-        if raw_min.shape[0] != cls.SMPL_FRAME_RAW_DIM:
-            raise ValueError(
-                f"SMPL frame conversion expects {cls.SMPL_FRAME_RAW_DIM}D action statistics, "
-                f"got {raw_min.shape[0]}"
-            )
-
-        fake_root_params = {
-            "min": np.concatenate((np.zeros(3, dtype=raw_min.dtype), raw_min[72:76])),
-            "max": np.concatenate((np.zeros(3, dtype=raw_max.dtype), raw_max[72:76])),
-            "mean": np.concatenate((np.zeros(3, dtype=raw_mean.dtype), raw_mean[72:76])),
-            "std": np.concatenate((np.ones(3, dtype=raw_std.dtype), raw_std[72:76])),
-        }
-        root_norm = cls.build_normalization_params(fake_root_params)
-        return {
-            "min": np.concatenate(
-                (raw_min[:72], root_norm["min"][3:9], raw_min[cls.SMPL_FRAME_TAIL_RAW_SLICE])
-            ),
-            "max": np.concatenate(
-                (raw_max[:72], root_norm["max"][3:9], raw_max[cls.SMPL_FRAME_TAIL_RAW_SLICE])
-            ),
-            "mean": np.concatenate(
-                (raw_mean[:72], root_norm["mean"][3:9], raw_mean[cls.SMPL_FRAME_TAIL_RAW_SLICE])
-            ),
-            "std": np.concatenate(
-                (raw_std[:72], root_norm["std"][3:9], raw_std[cls.SMPL_FRAME_TAIL_RAW_SLICE])
-            ),
-            "dim": np.array(cls.SMPL_FRAME_PROCESSED_DIM),
-        }
+    FRAME_RAW_DIM = 82
+    FRAME_PROCESSED_DIM = 84
 
     @classmethod
     def is_action_key(cls, key: str) -> bool:
         return key in cls.ACTION_KEYS
+
+    @classmethod
+    def pack_frame_root(cls, frame: np.ndarray, *, relative: bool = False) -> np.ndarray:
+        """getitem body ori from SMPL frame into a 7D/9D root (xyz unused)."""
+        if relative:
+            root = np.zeros((frame.shape[0], cls.PROCESSED_DIM), dtype=frame.dtype)
+            root[:, 3:9] = frame[:, 72:78]
+        else:
+            root = np.zeros((frame.shape[0], cls.RAW_DIM), dtype=frame.dtype)
+            root[:, 3:7] = frame[:, 72:76]
+        return root
+
+    @classmethod
+    def splice_frame_root(
+        cls, frame: np.ndarray, root: np.ndarray, *, relative: bool = False
+    ) -> np.ndarray:
+        """Put root ori back into SMPL frame (72 + ori + wrist)."""
+        if relative:
+            return np.concatenate((frame[:, :72], root[:, 3:9], frame[:, 76:82]), axis=-1)
+        return np.concatenate((frame[:, :72], root[:, 3:7], frame[:, 78:84]), axis=-1)
 
     @classmethod
     def _normalize_quaternion(cls, quaternion: np.ndarray) -> np.ndarray:
@@ -308,7 +227,8 @@ class RootRelative6D:
         return quaternions.reshape(*matrix.shape[:-2], 4)
 
     @classmethod
-    def to_relative(cls, action: np.ndarray, reference_state: np.ndarray) -> np.ndarray:
+    def to_relative(cls, action: np.ndarray, reference_state: np.ndarray, *, process_xyz: bool = False) -> np.ndarray:
+        """Convert absolute root (T, 7) to relative (T, 9)"""
         action = np.asarray(action)
         reference_state = np.asarray(reference_state)
 
@@ -328,16 +248,17 @@ class RootRelative6D:
                 "Unitree action or reference state contains NaN or Inf"
             )
 
-        reference_position = reference_state[:3]
         reference_quaternion = cls._normalize_quaternion(reference_state[3:7])
         reference_rotation = cls.quaternion_to_matrix(reference_quaternion)
-
-        future_position = action[:, :3]
         future_rotation = cls.quaternion_to_matrix(action[:, 3:7])
 
-        # Root translation expressed in the reference root frame.
-        world_delta = future_position - reference_position
-        local_delta = np.einsum("ij,tj->ti", reference_rotation.T, world_delta)
+        if process_xyz:
+            reference_position = reference_state[:3]
+            future_position = action[:, :3]
+            world_delta = future_position - reference_position
+            local_delta = np.einsum("ij,tj->ti", reference_rotation.T, world_delta)
+        else:
+            local_delta = np.zeros((action.shape[0], 3), dtype=action.dtype)
 
         # Root orientation relative to the reference root orientation.
         relative_rotation = np.einsum("ij,tjk->tik", reference_rotation.T, future_rotation)
@@ -346,7 +267,8 @@ class RootRelative6D:
         return np.concatenate((local_delta, relative_rotation_6d), axis=-1)
 
     @classmethod
-    def to_absolute(cls, action: np.ndarray, reference_state: np.ndarray) -> np.ndarray:
+    def to_absolute(cls, action: np.ndarray, reference_state: np.ndarray, *, process_xyz: bool = False) -> np.ndarray:
+        """Convert relative root (T, 9) back to absolute (T, 7)"""
         action = np.asarray(action)
         reference_state = np.asarray(reference_state)
 
@@ -370,12 +292,14 @@ class RootRelative6D:
         reference_position = reference_state[:3]
         reference_quaternion = cls._normalize_quaternion(reference_state[3:7])
         reference_rotation = cls.quaternion_to_matrix(reference_quaternion)
-
-        local_delta = action[:, :3]
         relative_rotation = cls.rotation_6d_to_matrix(action[:, 3:9])
 
-        world_delta = np.einsum("ij,tj->ti", reference_rotation, local_delta)
-        absolute_position = reference_position + world_delta
+        if process_xyz:
+            local_delta = action[:, :3]
+            world_delta = np.einsum("ij,tj->ti", reference_rotation, local_delta)
+            absolute_position = reference_position + world_delta
+        else:
+            absolute_position = np.repeat(reference_position[None, :], action.shape[0], axis=0)
 
         absolute_rotation = np.einsum("ij,tjk->tik", reference_rotation, relative_rotation)
         absolute_quaternion = cls.matrix_to_quaternion(absolute_rotation)
@@ -387,7 +311,8 @@ class RootRelative6D:
         return np.concatenate((absolute_position, absolute_quaternion), axis=-1)
 
     @classmethod
-    def build_normalization_params(cls, raw_params: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    def build_normalization_params(cls, raw_params: dict[str, np.ndarray], *, process_xyz: bool = False) -> dict[str, np.ndarray]:
+        """Build 9D relative-root normalization params from absolute 7D stats"""
         raw_min = np.asarray(raw_params["min"])
         raw_max = np.asarray(raw_params["max"])
         raw_mean = np.asarray(raw_params["mean"])
@@ -397,9 +322,13 @@ class RootRelative6D:
                 f"Unitree root conversion expects {cls.RAW_DIM}D action statistics, got {raw_min.shape[0]}"
             )
 
-        translation_bound = float(np.linalg.norm(raw_max[:3] - raw_min[:3]))
-        translation_bound = max(translation_bound, 1e-3)
-        translation_std = max(translation_bound / 3.0, 1e-3)
+        if process_xyz:
+            translation_bound = float(np.linalg.norm(raw_max[:3] - raw_min[:3]))
+            translation_bound = max(translation_bound, 1e-3)
+            translation_std = max(translation_bound / 3.0, 1e-3)
+        else:
+            translation_bound = 1e-3
+            translation_std = 1e-3
 
         processed_min = np.concatenate(
             (
@@ -549,7 +478,9 @@ class StateActionProcessor:
                         and int(params["dim"].item()) == RootRelative6D.RAW_DIM
                     ):
                         self.norm_params[embodiment_tag]["action"][key] = (
-                            RootRelative6D.build_normalization_params(params)
+                            RootRelative6D.build_normalization_params(
+                                params, process_xyz=True
+                            )
                         )
                         logger.info(
                             "Enabled Unitree relative root 6D processing for %s/%s: %dD -> %dD",
@@ -559,38 +490,58 @@ class StateActionProcessor:
                             RootRelative6D.PROCESSED_DIM,
                         )
 
+            # SMPL frame: 82->84 when state provides robot_root (same math as WBC, getitem only).
+            state_cfg = self.modality_configs[embodiment_tag].get("state")
+            state_keys = (
+                {str(k).removeprefix("state.") for k in state_cfg.modality_keys}
+                if state_cfg is not None
+                else set()
+            )
+            has_root = bool(state_keys.intersection(RootRelative6D.STATE_KEY_CANDIDATES["frame"]))
             for key in modality_keys:
                 params = self.norm_params[embodiment_tag]["action"].get(key)
                 if (
-                    RootRelative6D.is_smpl_frame_key(key)
-                    and params is not None
-                    and int(params["dim"].item()) == RootRelative6D.SMPL_FRAME_RAW_DIM
+                    key != "frame"
+                    or not has_root
+                    or params is None
+                    or int(params["dim"].item()) != RootRelative6D.FRAME_RAW_DIM
                 ):
-                    self.norm_params[embodiment_tag]["action"][key] = (
-                        RootRelative6D.build_smpl_frame_normalization_params(params)
-                    )
-                    logger.info(
-                        "Enabled SMPL frame relative root 6D processing for %s/%s: %dD -> %dD",
-                        embodiment_tag,
-                        key,
-                        RootRelative6D.SMPL_FRAME_RAW_DIM,
-                        RootRelative6D.SMPL_FRAME_PROCESSED_DIM,
-                    )
+                    continue
+                root_norm = RootRelative6D.build_normalization_params(
+                    {
+                        "min": np.zeros(RootRelative6D.RAW_DIM, dtype=params["min"].dtype),
+                        "max": np.ones(RootRelative6D.RAW_DIM, dtype=params["max"].dtype),
+                        "mean": np.zeros(RootRelative6D.RAW_DIM, dtype=params["mean"].dtype),
+                        "std": np.ones(RootRelative6D.RAW_DIM, dtype=params["std"].dtype),
+                    }
+                )
+                rewritten = {
+                    k: np.concatenate((params[k][:72], root_norm[k][3:9], params[k][76:82]))
+                    for k in ("min", "max", "mean", "std")
+                }
+                rewritten["dim"] = np.array(RootRelative6D.FRAME_PROCESSED_DIM)
+                self.norm_params[embodiment_tag]["action"][key] = rewritten
+                logger.info(
+                    "Enabled Unitree relative root 6D processing for %s/%s: %dD -> %dD",
+                    embodiment_tag,
+                    key,
+                    RootRelative6D.FRAME_RAW_DIM,
+                    RootRelative6D.FRAME_PROCESSED_DIM,
+                )
 
     def _uses_unitree_root_relative_6d(self, embodiment_tag: str, key: str) -> bool:
-        if not self.use_relative_action or not RootRelative6D.is_action_key(key):
+        """Same gate as the verified WBC path; ``frame`` uses processed 84D dim."""
+        if not RootRelative6D.is_action_key(key):
             return False
         params = self.norm_params.get(embodiment_tag, {}).get("action", {}).get(key)
-        return params is not None and int(params["dim"].item()) == RootRelative6D.PROCESSED_DIM
-
-    def _uses_smpl_frame_relative_6d(self, embodiment_tag: str, key: str) -> bool:
-        if not RootRelative6D.is_smpl_frame_key(key):
+        if params is None:
             return False
-        params = self.norm_params.get(embodiment_tag, {}).get("action", {}).get(key)
-        return (
-            params is not None
-            and int(params["dim"].item()) == RootRelative6D.SMPL_FRAME_PROCESSED_DIM
-        )
+        dim = int(params["dim"].item())
+        if key == "robot_root":
+            return self.use_relative_action and dim == RootRelative6D.PROCESSED_DIM
+        if key == "frame":
+            return dim == RootRelative6D.FRAME_PROCESSED_DIM
+        return False
 
     @staticmethod
     def _strip_state_prefix(state: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
@@ -622,14 +573,11 @@ class StateActionProcessor:
                 action_key,
             )
             action = np.asarray(action)
-            if RootRelative6D.is_smpl_frame_key(action_key):
-                if action.ndim == 2:
-                    return RootRelative6D._pack_smpl_frame_quat_as_root(action)[0]
-                if action.ndim == 3:
-                    return RootRelative6D._pack_smpl_frame_quat_as_root(action[0])[0]
-                raise ValueError(
-                    f"Expected SMPL frame action (T, D) or (B, T, D), got {action.shape}"
-                )
+            if action_key == "frame":
+                frame0 = action[0] if action.ndim == 2 else action[0, 0]
+                root = np.zeros(RootRelative6D.RAW_DIM, dtype=action.dtype)
+                root[3:7] = frame0[72:76]
+                return root
             return action[0]
         if reference_array.ndim == 1:
             return reference_array
@@ -645,11 +593,26 @@ class StateActionProcessor:
         state: dict[str, np.ndarray] | None,
         action_key: str,
     ) -> np.ndarray:
+        """Same structure as WBC; ``frame`` only differs by getitem."""
         reference_array = self._get_unitree_reference_array(state, action_key)
         if reference_array is None:
             raise ValueError(
                 f"State containing one of {RootRelative6D.STATE_KEY_CANDIDATES[action_key]} "
                 f"is required to decode relative Unitree root action '{action_key}'"
+            )
+
+        process_xyz = action_key == "robot_root"
+
+        def _one(sample_action: np.ndarray, reference: np.ndarray) -> np.ndarray:
+            if action_key == "frame":
+                absolute_root = RootRelative6D.to_absolute(
+                    RootRelative6D.pack_frame_root(sample_action, relative=True),
+                    reference,
+                    process_xyz=process_xyz,
+                )
+                return RootRelative6D.splice_frame_root(sample_action, absolute_root)
+            return RootRelative6D.to_absolute(
+                sample_action, reference, process_xyz=process_xyz
             )
 
         action = np.asarray(action)
@@ -664,7 +627,7 @@ class StateActionProcessor:
                 raise ValueError(
                     f"Cannot match action shape {action.shape} with state shape {reference_array.shape}"
                 )
-            return RootRelative6D.to_absolute(action, reference)
+            return _one(action, reference)
 
         if action.ndim != 3:
             raise ValueError(f"Expected Unitree action (T, D) or (B, T, D), got {action.shape}")
@@ -687,65 +650,8 @@ class StateActionProcessor:
             raise ValueError(f"Unsupported Unitree state shape {reference_array.shape}")
 
         return np.stack(
-            [
-                RootRelative6D.to_absolute(sample_action, sample_reference)
-                for sample_action, sample_reference in zip(action, references)
-            ],
-            axis=0,
-        )
-
-    def _convert_smpl_frame_to_absolute(
-        self,
-        action: np.ndarray,
-        state: dict[str, np.ndarray] | None,
-        action_key: str,
-    ) -> np.ndarray:
-        reference_array = self._get_unitree_reference_array(state, action_key)
-        if reference_array is None:
-            raise ValueError(
-                f"State containing one of {RootRelative6D.STATE_KEY_CANDIDATES[action_key]} "
-                f"is required to decode relative SMPL frame action '{action_key}'"
-            )
-
-        action = np.asarray(action)
-        if action.ndim == 2:
-            if reference_array.ndim == 1:
-                reference = reference_array
-            elif reference_array.ndim == 2:
-                reference = reference_array[-1]
-            elif reference_array.ndim == 3 and reference_array.shape[0] == 1:
-                reference = reference_array[0, -1]
-            else:
-                raise ValueError(
-                    f"Cannot match action shape {action.shape} with state shape {reference_array.shape}"
-                )
-            return RootRelative6D.smpl_frame_to_absolute(action, reference)
-
-        if action.ndim != 3:
-            raise ValueError(f"Expected SMPL frame action (T, D) or (B, T, D), got {action.shape}")
-
-        batch_size = action.shape[0]
-        if reference_array.ndim == 1:
-            references = np.repeat(reference_array[None, :], batch_size, axis=0)
-        elif reference_array.ndim == 2:
-            if reference_array.shape[0] == batch_size:
-                references = reference_array
-            else:
-                references = np.repeat(reference_array[-1][None, :], batch_size, axis=0)
-        elif reference_array.ndim == 3:
-            if reference_array.shape[0] != batch_size:
-                raise ValueError(
-                    f"Action batch {batch_size} does not match state batch {reference_array.shape[0]}"
-                )
-            references = reference_array[:, -1]
-        else:
-            raise ValueError(f"Unsupported SMPL frame state shape {reference_array.shape}")
-
-        return np.stack(
-            [
-                RootRelative6D.smpl_frame_to_absolute(sample_action, sample_reference)
-                for sample_action, sample_reference in zip(action, references)
-            ],
+            [_one(sample_action, sample_reference)
+             for sample_action, sample_reference in zip(action, references)],
             axis=0,
         )
 
@@ -844,23 +750,23 @@ class StateActionProcessor:
         special_keys = set()
 
         for key in modality_keys:
-            if self._uses_smpl_frame_relative_6d(embodiment_tag, key):
-                if key not in action:
-                    raise KeyError(
-                        f"Joint group '{key}' not found in action dict for embodiment '{embodiment_tag}'"
-                    )
-                reference = self._get_unitree_reference_for_training(state, key, action[key])
-                action[key] = RootRelative6D.smpl_frame_to_relative(action[key], reference)
-                special_keys.add(key)
-
-        for key in modality_keys:
             if self._uses_unitree_root_relative_6d(embodiment_tag, key):
                 if key not in action:
                     raise KeyError(
                         f"Joint group '{key}' not found in action dict for embodiment '{embodiment_tag}'"
                     )
                 reference = self._get_unitree_reference_for_training(state, key, action[key])
-                action[key] = RootRelative6D.to_relative(action[key], reference)
+                if key == "frame":
+                    relative_root = RootRelative6D.to_relative(
+                        RootRelative6D.pack_frame_root(action[key]), reference
+                    )
+                    action[key] = RootRelative6D.splice_frame_root(
+                        action[key], relative_root, relative=True
+                    )
+                else:
+                    action[key] = RootRelative6D.to_relative(
+                        action[key], reference, process_xyz=True
+                    )
                 special_keys.add(key)
 
         if action_configs is not None:
@@ -934,13 +840,6 @@ class StateActionProcessor:
             unnormalized_values[joint_group] = unnormalized
 
         special_keys = set()
-        for key in modality_keys:
-            if self._uses_smpl_frame_relative_6d(embodiment_tag, key):
-                unnormalized_values[key] = self._convert_smpl_frame_to_absolute(
-                    unnormalized_values[key], state, key
-                )
-                special_keys.add(key)
-
         for key in modality_keys:
             if self._uses_unitree_root_relative_6d(embodiment_tag, key):
                 unnormalized_values[key] = self._convert_unitree_to_absolute(

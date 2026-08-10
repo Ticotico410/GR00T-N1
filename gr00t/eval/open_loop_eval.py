@@ -323,10 +323,12 @@ def evaluate_single_trajectory(
             if reference.ndim == 2:
                 reference = reference[-1]
 
-            pred_relative9d = RootRelative6D.to_relative(pred_abs_chunk, reference)
+            pred_relative9d = RootRelative6D.to_relative(
+                pred_abs_chunk, reference, process_xyz=True
+            )
 
             gt_relative9d_segments.append(
-                RootRelative6D.to_relative(gt_abs_chunk, reference)
+                RootRelative6D.to_relative(gt_abs_chunk, reference, process_xyz=True)
             )
             pred_relative9d_segments.append(pred_relative9d)
         else:

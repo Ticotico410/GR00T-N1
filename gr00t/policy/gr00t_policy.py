@@ -428,10 +428,18 @@ class Gr00tPolicy(BasePolicy):
             model_pred = self.model.get_action(**collated_inputs)
         normalized_action = model_pred["action_pred"].float()
 
-        # Step 5: Decode actions from normalized space back to physical units
+        # Step 5: Decode actions from normalized space back to physical units.
+        # Include modality state keys, plus any extra keys present in the raw
+        # observation (e.g. injected robot_root for relative SMPL frame decode).
+        state_keys = list(self.modality_configs["state"].modality_keys)
+        for sample_states in states:
+            for key in sample_states:
+                if key not in state_keys:
+                    state_keys.append(key)
         batched_states = {}
-        for k in self.modality_configs["state"].modality_keys:
-            batched_states[k] = np.stack([s[k] for s in states], axis=0)  # (B, T, D)
+        for k in state_keys:
+            if all(k in sample_states for sample_states in states):
+                batched_states[k] = np.stack([s[k] for s in states], axis=0)  # (B, T, D)
         unnormalized_action = self.processor.decode_action(
             normalized_action.cpu().numpy(), self.embodiment_tag, batched_states
         )

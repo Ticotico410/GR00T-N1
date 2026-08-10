@@ -17,19 +17,21 @@
 
 Action (96 dims after processor; 94 raw in parquet):
   - frame:      82-dim SMPL skeletal -> 84-dim after hip-root relative rot6D
-                (frame[72:76] wxyz quat, relative to state robot_root via RootRelative6D)
+                (frame[72:76] wxyz quat). Conversion reuses the verified WBC
+                RootRelative6D.to_relative / to_absolute on rotation only
+                (xyz packed as 0; reference = state robot_root[3:7]).
   - left_hand:  6-dim hand command
   - right_hand: 6-dim hand command
 
 State (48 dims):
   - left_hand / right_hand: hand_state (12)
-  - robot_root: robot_q_current[0:7] (xyz + wxyz quat) — reference for frame hip rotation
+  - robot_root: robot_q_current[0:7] (xyz + wxyz quat) — reference quat for frame
   - robot_qpos: robot_q_current[7:36] (29 joint angles)
 
 Video: head stereo + both wrists (same as WBC).
 
-Hand actions use ABSOLUTE. SMPL frame hip quaternion is converted with the same
-RootRelative6D path as WBC robot_root (relative rotation 6D w.r.t. robot_root).
+Hand actions use ABSOLUTE. SMPL frame hip quaternion uses the same RootRelative6D
+class as UNITREE_G1_WBC robot_root, without applying root translation.
 """
 
 from gr00t.configs.data.embodiment_configs import register_modality_config
