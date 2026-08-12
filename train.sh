@@ -5,7 +5,7 @@ PROJECT_ROOT="/sh/ycb/model/GR00T"
 VENV_PATH="/sh/ycb/venvs/gr00t_n1d7/bin/activate"
 CACHE_ROOT="/sh/ycb/.cache"
 DATASET_ROOT="/sh/datasets/g1/smpl/tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/lerobot_v2.1"
-EXP_NAME="GR00T_N1d7_g1_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco"
+EXP_NAME="GR00T_N1d7_100k_g1_smpl_euler_delta_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco"
 CHECKPOINT_BASE_DIR="/sh/ycb/checkpoints"
 OUTPUT_DIR="${CHECKPOINT_BASE_DIR}/${EXP_NAME}"
 BASE_MODEL_PATH="${CACHE_ROOT}/gr00t_n1d7/GR00T-N1.7-3B"
@@ -19,14 +19,20 @@ MAX_STEPS=100000
 SAVE_STEPS=10000
 LEARNING_RATE=1e-4
 DATALOADER_NUM_WORKERS=1
-WANDB_PROJECT="GR00T_N1d7_g1_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco"
+WANDB_PROJECT="GR00T_N1d7_100k_g1_smpl_euler_delta_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco"
 
-# Init 
+# Init
 RESUME_FROM_CHECKPOINT="${RESUME_FROM_CHECKPOINT:-0}"
 # Resume
 # export WANDB_RUN_ID=ahfu3a6i
 # export WANDB_RESUME=allow
 # RESUME_FROM_CHECKPOINT=1
+
+# Root representation (SMPL): default rot6d; Euler via flags below
+# USE_RELATIVE_EULER=1 USE_STATE_EULER=0  → absolute Euler on action
+# USE_RELATIVE_EULER=1 USE_STATE_EULER=1  → delta(action_euler - state_euler)
+USE_RELATIVE_EULER="${USE_RELATIVE_EULER:-0}"
+USE_STATE_EULER="${USE_STATE_EULER:-0}"
 
 cd "${PROJECT_ROOT}"
 source "${VENV_PATH}"
@@ -146,6 +152,17 @@ if [[ "${RESUME_FROM_CHECKPOINT}" == "1" || "${RESUME_FROM_CHECKPOINT}" == "true
   RESUME_ARGS+=(--resume-from-checkpoint)
 fi
 
+EULER_ARGS=()
+if [[ "${USE_RELATIVE_EULER}" == "1" || "${USE_RELATIVE_EULER}" == "true" ]]; then
+  EULER_ARGS+=(--use-relative-euler)
+fi
+if [[ "${USE_STATE_EULER}" == "1" || "${USE_STATE_EULER}" == "true" ]]; then
+  EULER_ARGS+=(--use-state-euler)
+fi
+
+echo "USE_RELATIVE_EULER=${USE_RELATIVE_EULER}"
+echo "USE_STATE_EULER=${USE_STATE_EULER}"
+
 python -m torch.distributed.run \
   --nproc_per_node="${NUM_GPUS}" \
   gr00t/experiment/launch_finetune.py \
@@ -163,4 +180,5 @@ python -m torch.distributed.run \
   --dataloader-num-workers "${DATALOADER_NUM_WORKERS}" \
   --wandb-project "${WANDB_PROJECT}" \
   "${RESUME_ARGS[@]}" \
+  "${EULER_ARGS[@]}" \
   --use-wandb

@@ -31,29 +31,44 @@ source /sh/ycb/venvs/gr00t_n1d7/bin/activate
 ---
 ### Training
 ```bash
-# 1. Generate the statistic value before finetuning (stats.json | relative_stats.json)
-#    Re-run this whenever action delta_indices / horizon changes (e.g. 16 -> 40).
-#    Current sonic dataset: 68-dim action = motion_token(64) + hands(2+2).
+# 1. Generate stats (re-run when action horizon / modality changes)
 cd /sh/ycb/model/GR00T
 python gr00t/data/stats.py \
-  --dataset-path /sh/datasets/g1/sonic/walk_to_table_and_place_apple_on_pink_plate_100/lerobot_v2.1 \
-  --embodiment-tag UNITREE_G1_SONIC \
-  --modality-config-path examples/G1/sonic/unitree_g1_sonic_config.py
+  --dataset-path /sh/datasets/g1/smpl/tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/lerobot_v2.1 \
+  --embodiment-tag UNITREE_G1_SMPL \
+  --modality-config-path examples/G1/smpl/unitree_g1_smpl_config.py
 
-# 2. Launch the training script on the training server (tmux)
+# 2. Launch training (tmux)
 tmux new -s train_gr00t_n1d7
 source /sh/ycb/venvs/gr00t_n1d7/bin/activate
-# optional: wandb login --relogin   # interactive; or: wandb login --relogin "$WANDB_API_KEY"
 cd /sh/ycb/model/GR00T
 bash train.sh
-# Or skip W&B: set WANDB_ENABLED=false in train.sh
+```
 
-# 3. Detach / reattach tmux
-Detach: Ctrl-b then d
-Reattach: tmux attach -t train_gr00t_n1d7
-List sessions: tmux ls
+#### SMPL root 表示模式
 
-# Kill the training process
+```bash
+# A) 默认 relative rot6d
+bash train.sh
+
+# B) 绝对欧拉角：action quat→xyz Euler，独立学习，单独归一化
+USE_RELATIVE_EULER=1 bash train.sh
+# 等价: launch_finetune.py ... --use-relative-euler
+
+# C) 增量欧拉角：delta = wrap(action_euler - state_euler)，state.robot_root 也转欧拉
+USE_RELATIVE_EULER=1 USE_STATE_EULER=1 bash train.sh
+# 等价: launch_finetune.py ... --use-relative-euler --use-state-euler
+
+# D) 也可用 modality config 触发 delta：把 frame 的 ActionConfig.rep 改成 RELATIVE
+#     （examples/G1/smpl/unitree_g1_smpl_config.py 第一个 action_configs），再：
+USE_RELATIVE_EULER=1 bash train.sh
+```
+
+```bash
+# Detach / reattach / kill
+# Detach: Ctrl-b then d
+tmux attach -t train_gr00t_n1d7
+tmux ls
 pkill -KILL -f 'gr00t/experiment/launch_finetune.py' || true
 ```
 ---
@@ -66,19 +81,24 @@ export HF_HOME=/sh/ycb/.cache/huggingface
 export HF_HUB_CACHE=/sh/ycb/.cache/huggingface/hub
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 export GROOT_PATCH_MISTRAL=1
-# optional pin: export COSMOS_REASON2_PATH=$HF_HUB_CACHE/models--nvidia--Cosmos-Reason2-2B/snapshots/<hash>
 
+# rot6d checkpoint（默认训练）
 python gr00t/eval/open_loop_eval.py \
-  --dataset-path /sh/datasets/g1/sonic/walk_to_table_and_place_apple_on_pink_plate_100/lerobot_v2.1 \
-  --embodiment-tag UNITREE_G1_SONIC \
-  --model-path /sh/ycb/checkpoints/GR00T_N1d7_g1_sonic_walk_to_table_place_apple_on_pink_plate_100/GR00T_N1d7_g1_sonic_walk_to_table_place_apple_on_pink_plate_100/checkpoint-20000 \
-  --save_plot_path /sh/ycb/checkpoints/GR00T_N1d7_g1_sonic_walk_to_table_place_apple_on_pink_plate_100/open_loop_eval/traj_0.jpeg \
+  --dataset-path /sh/datasets/g1/smpl/tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/lerobot_v2.1 \
+  --embodiment-tag UNITREE_G1_SMPL \
+  --model-path /sh/ycb/checkpoints/GR00T_N1d7_g1_100k_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/GR00T_N1d7_g1_100k_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/checkpoint-40000 \
+  --save_plot_path /sh/ycb/checkpoints/GR00T_N1d7_g1_100k_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/GR00T_N1d7_g1_100k_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/checkpoint-40000/open_loop_eval/rot6d/traj_0.jpeg \
   --traj-ids 0 \
   --denoising-steps 4 \
-  --action-horizon 40 \
-  --steps 400 \
+  --action-horizon 50 \
+  --steps 1500 \
   --video-backend pyav \
-  --root-eval-space absolute
+  --relative-root-mode rot6d
+
+# 绝对欧拉 / 增量欧拉 checkpoint：processor 已写入 use_relative_euler / use_state_euler，
+# 解码走 unapply；对比空间可仍用 rot6d 或 absolute：
+#   --relative-root-mode absolute
+#   --relative-root-mode rot6d
 ```
 
 ### Open-loop — on local machine (uses home NVMe Cosmos)
@@ -91,4 +111,5 @@ bash eval_open_loop.sh
 ### Finetune specific parameters
 ```bash
 gr00t/configs/finetune_config.py
+# --use-relative-euler / --use-state-euler
 ```

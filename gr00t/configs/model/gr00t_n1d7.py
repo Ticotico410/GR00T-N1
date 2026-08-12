@@ -68,6 +68,10 @@ class Gr00tN1d7Config(PretrainedConfig):
     )
     use_percentiles: bool = True
     use_relative_action: bool = False
+    use_relative_euler: bool = False
+    """If True, SMPL/WBC root uses Euler xyz instead of relative rot6D."""
+    use_state_euler: bool = False
+    """If True (requires use_relative_euler), learn delta(action_euler - state_euler)."""
 
     # Action head configuration parameters
     max_state_dim: int = 132  # Default from state_shape

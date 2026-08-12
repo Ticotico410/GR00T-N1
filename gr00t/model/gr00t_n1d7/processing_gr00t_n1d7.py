@@ -171,6 +171,8 @@ class Gr00tN1d7Processor(BaseProcessor):
         use_albumentations: bool = False,
         extra_augmentation_config: dict | None = None,
         use_relative_action: bool = False,
+        use_relative_euler: bool = False,
+        use_state_euler: bool = False,
         embodiment_id_mapping: dict[str, int] | None = None,
         transformers_loading_kwargs: dict = {"trust_remote_code": True},
         # State augmentation
@@ -191,6 +193,8 @@ class Gr00tN1d7Processor(BaseProcessor):
             clip_outliers=clip_outliers,
             apply_sincos_state_encoding=apply_sincos_state_encoding,
             use_relative_action=use_relative_action,
+            use_relative_euler=use_relative_euler,
+            use_state_euler=use_state_euler,
         )
 
         # Save state action processor settings
@@ -199,6 +203,8 @@ class Gr00tN1d7Processor(BaseProcessor):
         self.clip_outliers = clip_outliers
         self.apply_sincos_state_encoding = apply_sincos_state_encoding
         self.use_relative_action = use_relative_action
+        self.use_relative_euler = use_relative_euler
+        self.use_state_euler = use_state_euler
         self.extra_augmentation_config = extra_augmentation_config
 
         # State augmentation settings
@@ -721,6 +727,8 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "clip_outliers": self.clip_outliers,
                 "apply_sincos_state_encoding": self.apply_sincos_state_encoding,
                 "use_relative_action": self.use_relative_action,
+                "use_relative_euler": self.use_relative_euler,
+                "use_state_euler": self.use_state_euler,
                 # State augmentation
                 "exclude_state": self.exclude_state,
                 "state_dropout_prob": self.state_dropout_prob,
@@ -794,6 +802,8 @@ class Gr00tN1d7Processor(BaseProcessor):
         processor_kwargs.setdefault("model_name", "nvidia/Cosmos-Reason2-2B")
         processor_kwargs.setdefault("model_type", "qwen")
         processor_kwargs.setdefault("clip_outliers", True)
+        processor_kwargs.setdefault("use_relative_euler", False)
+        processor_kwargs.setdefault("use_state_euler", False)
 
         # Directly override other processor kwargs
         if kwargs:
@@ -805,6 +815,8 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "random_rotation_angle",
                 "color_jitter_params",
                 "use_relative_action",
+                "use_relative_euler",
+                "use_state_euler",
                 "exclude_state",
                 "state_dropout_prob",
                 "use_mean_std",

@@ -93,6 +93,8 @@ if __name__ == "__main__":
     config.model.reproject_vision = False
     config.model.backbone_trainable_params_fp32 = True
     config.model.use_relative_action = True
+    config.model.use_relative_euler = ft_config.use_relative_euler
+    config.model.use_state_euler = ft_config.use_state_euler
 
     # Prefer HF cache under CACHE_ROOT (set by train.sh); avoid silent /root/.cache hits.
     # model_name must be a local dir when offline — HF repo IDs still probe the Hub

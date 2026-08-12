@@ -446,3 +446,97 @@ class TestSmplFrameRelative6D:
         R_orig = RootRelative6D.quaternion_to_matrix(raw_action["frame"][:, 72:76])
         R_rec = RootRelative6D.quaternion_to_matrix(recovered["frame"][:, 72:76])
         np.testing.assert_allclose(R_orig, R_rec, atol=1e-5)
+
+
+class TestSmplFrameRelativeEuler:
+    def test_absolute_and_delta_euler_roundtrip(self):
+        from gr00t.data.state_action.state_action_processor import (
+            RootRelative6D,
+            RootRelativeEuler,
+            StateActionProcessor,
+        )
+
+        horizon = 5
+        embodiment = "unitree_g1_smpl"
+        modality_configs = {
+            embodiment: {
+                "state": {
+                    "modality_keys": ["robot_root", "robot_qpos"],
+                    "delta_indices": [0],
+                },
+                "action": {
+                    "modality_keys": ["frame"],
+                    "delta_indices": list(range(horizon)),
+                    "action_configs": [
+                        {"rep": "ABSOLUTE", "type": "NON_EEF", "format": "DEFAULT"}
+                    ],
+                },
+            }
+        }
+        statistics = {
+            embodiment: {
+                "state": {
+                    "robot_root": _smpl_frame_stats(RootRelativeEuler.RAW_DIM),
+                    "robot_qpos": _smpl_frame_stats(29),
+                },
+                "action": {"frame": _smpl_frame_stats(RootRelativeEuler.FRAME_RAW_DIM)},
+            }
+        }
+        raw_action = {
+            "frame": np.random.randn(horizon, RootRelativeEuler.FRAME_RAW_DIM).astype(
+                np.float32
+            )
+        }
+        raw_action["frame"][:, 72:76] = _random_unit_quaternions(horizon)
+        raw_state = {
+            "robot_root": np.zeros((1, 7), dtype=np.float32),
+            "robot_qpos": np.random.randn(1, 29).astype(np.float32),
+        }
+        raw_state["robot_root"][0, 3:7] = _random_unit_quaternions(1)[0]
+        R_orig = RootRelative6D.quaternion_to_matrix(raw_action["frame"][:, 72:76])
+
+        for use_state_euler in (False, True):
+            proc = StateActionProcessor(
+                modality_configs=modality_configs,
+                statistics=statistics,
+                use_percentiles=False,
+                clip_outliers=False,
+                use_relative_euler=True,
+                use_state_euler=use_state_euler,
+            )
+            assert (
+                int(proc.norm_params[embodiment]["action"]["frame"]["dim"].item())
+                == RootRelativeEuler.FRAME_PROCESSED_DIM
+            )
+            if use_state_euler:
+                assert (
+                    int(proc.norm_params[embodiment]["state"]["robot_root"]["dim"].item())
+                    == RootRelativeEuler.PROCESSED_DIM
+                )
+            normalized = proc.apply_action(raw_action, embodiment, state=raw_state)
+            recovered = proc.unapply_action(normalized, embodiment, state=raw_state)
+            R_rec = RootRelative6D.quaternion_to_matrix(recovered["frame"][:, 72:76])
+            np.testing.assert_allclose(R_orig, R_rec, atol=1e-4)
+
+    def test_relative_config_enables_state_delta(self):
+        from gr00t.data.state_action.state_action_processor import RootRelativeEuler, StateActionProcessor
+
+        modality_configs = {
+            "unitree_g1_smpl": {
+                "state": {"modality_keys": ["robot_root"], "delta_indices": [0]},
+                "action": {
+                    "modality_keys": ["frame"],
+                    "delta_indices": list(range(3)),
+                    "action_configs": [
+                        {"rep": "RELATIVE", "type": "NON_EEF", "format": "DEFAULT"}
+                    ],
+                },
+            }
+        }
+        proc = StateActionProcessor(
+            modality_configs=modality_configs,
+            use_relative_euler=True,
+            use_state_euler=False,
+        )
+        assert proc._wants_state_euler("unitree_g1_smpl")
+        assert RootRelativeEuler.FRAME_PROCESSED_DIM == 81

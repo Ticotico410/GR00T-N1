@@ -15,23 +15,25 @@
 
 """Modality config for Unitree G1 predicting SMPL skeletal actions.
 
-Action (96 dims after processor; 94 raw in parquet):
-  - frame:      82-dim SMPL skeletal -> 84-dim after hip-root relative rot6D
-                (frame[72:76] wxyz quat). Conversion reuses the verified WBC
-                RootRelative6D.to_relative / to_absolute on rotation only
-                (xyz packed as 0; reference = state robot_root[3:7]).
+Action (dims after processor depend on root mode):
+  - frame:      82-dim SMPL skeletal
+                - default (rot6d): → 84-dim after hip-root relative rot6D
+                  (frame[72:76] wxyz quat via RootRelative6D, process_xyz=False)
+                - --use-relative-euler: → 81-dim after hip quat→xyz Euler
+                  (RootRelativeEuler; optional --use-state-euler for delta vs state)
   - left_hand:  6-dim hand command
   - right_hand: 6-dim hand command
 
-State (48 dims):
+State (48 dims, or 47 when --use-state-euler / frame ActionConfig.RELATIVE):
   - left_hand / right_hand: hand_state (12)
-  - robot_root: robot_q_current[0:7] (xyz + wxyz quat) — reference quat for frame
+  - robot_root: robot_q_current[0:7] (xyz + wxyz quat) — reference for frame
+                (converted to xyz+euler when delta-Euler mode is on)
   - robot_qpos: robot_q_current[7:36] (29 joint angles)
 
 Video: head stereo + both wrists (same as WBC).
 
-Hand actions use ABSOLUTE. SMPL frame hip quaternion uses the same RootRelative6D
-class as UNITREE_G1_WBC robot_root, without applying root translation.
+Hand actions use ABSOLUTE. For Euler delta mode either pass --use-state-euler or set
+the frame ActionConfig.rep to RELATIVE (first action_configs entry).
 """
 
 from gr00t.configs.data.embodiment_configs import register_modality_config
@@ -65,7 +67,9 @@ unitree_g1_smpl_config = {
             "robot_qpos",
         ],
     ),
-    # Action: predict horizon @ 30 fps; 84 + 6 + 6 = 96 dims after relative rot6D
+    # Action: predict horizon @ 30 fps
+    # frame: ABSOLUTE + default rot6d → 84D; with --use-relative-euler → 81D
+    # Set frame rep=RELATIVE (or pass --use-state-euler) for delta(action_euler-state_euler)
     "action": ModalityConfig(
         delta_indices=list(range(0, 50)),
         modality_keys=[

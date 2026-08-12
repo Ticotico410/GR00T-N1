@@ -177,7 +177,18 @@ class FinetuneConfig:
     The processor (tokenizer/config) is still loaded from base_model_path.
     Useful for CI/testing to skip the slow checkpoint shard loading."""
 
+    use_relative_euler: bool = False
+    """If True, convert root quaternion to xyz Euler (SMPL frame / WBC robot_root)
+    instead of relative rot6D. Dedicated min/max normalization for Euler dims."""
+
+    use_state_euler: bool = False
+    """Requires use_relative_euler. If True, learn wrap(action_euler - state_euler)
+    and also convert state robot_root quat→Euler. Equivalent trigger: set frame/root
+    ActionConfig.rep=RELATIVE in the modality config."""
+
     def __post_init__(self) -> None:
+        if self.use_state_euler and not self.use_relative_euler:
+            raise ValueError("use_state_euler=True requires use_relative_euler=True")
         if self.gradient_accumulation_steps < 1:
             raise ValueError(
                 f"gradient_accumulation_steps must be >= 1, got {self.gradient_accumulation_steps}"
