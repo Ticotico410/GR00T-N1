@@ -309,10 +309,10 @@ def _random_unit_quaternions(num: int) -> np.ndarray:
 
 class TestSmplFrameRelative6D:
     def test_smpl_frame_relative_roundtrip(self):
-        from gr00t.data.state_action.state_action_processor import RootRelative6D, StateActionProcessor
+        from gr00t.data.state_action.state_action_processor import Root2Rot6d, StateActionProcessor
 
         horizon = 8
-        raw = np.random.randn(horizon, RootRelative6D.FRAME_RAW_DIM).astype(np.float32)
+        raw = np.random.randn(horizon, Root2Rot6d.FRAME_RAW_DIM).astype(np.float32)
         raw[:, 72:76] = _random_unit_quaternions(horizon)
         reference = np.array([1.5, -2.0, 0.8, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
         reference[3:7] = _random_unit_quaternions(1)[0]
@@ -332,28 +332,28 @@ class TestSmplFrameRelative6D:
             }
         )
         # Same WBC wiring: to_relative / to_absolute; frame only differs by getitem.
-        relative_root = RootRelative6D.to_relative(
-            RootRelative6D.pack_frame_root(raw), reference
+        relative_root = Root2Rot6d.to_relative(
+            Root2Rot6d.pack_frame_root(raw), reference
         )
-        processed = RootRelative6D.splice_frame_root(raw, relative_root, relative=True)
+        processed = Root2Rot6d.splice_frame_root(raw, relative_root, relative=True)
         recovered = proc._convert_unitree_to_absolute(
             processed, {"robot_root": reference}, "frame"
         )
 
-        assert processed.shape == (horizon, RootRelative6D.FRAME_PROCESSED_DIM)
+        assert processed.shape == (horizon, Root2Rot6d.FRAME_PROCESSED_DIM)
         np.testing.assert_allclose(raw[:, :72], processed[:, :72])
         np.testing.assert_allclose(raw[:, 76:], processed[:, 78:])
-        R_orig = RootRelative6D.quaternion_to_matrix(raw[:, 72:76])
-        R_rec = RootRelative6D.quaternion_to_matrix(recovered[:, 72:76])
+        R_orig = Root2Rot6d.quaternion_to_matrix(raw[:, 72:76])
+        R_rec = Root2Rot6d.quaternion_to_matrix(recovered[:, 72:76])
         np.testing.assert_allclose(R_orig, R_rec, atol=1e-5)
 
-        root = RootRelative6D.pack_frame_root(raw)
-        relative_root = RootRelative6D.to_relative(root, reference)
+        root = Root2Rot6d.pack_frame_root(raw)
+        relative_root = Root2Rot6d.to_relative(root, reference)
         np.testing.assert_allclose(processed[:, 72:78], relative_root[:, 3:9], atol=1e-6)
         np.testing.assert_allclose(relative_root[:, :3], 0.0, atol=1e-7)
 
     def test_process_xyz_true_matches_legacy_wbc(self):
-        from gr00t.data.state_action.state_action_processor import RootRelative6D
+        from gr00t.data.state_action.state_action_processor import Root2Rot6d
 
         horizon = 5
         action = np.zeros((horizon, 7), dtype=np.float32)
@@ -364,15 +364,15 @@ class TestSmplFrameRelative6D:
         reference = np.array([0.2, -0.1, 0.7, 1.0, 0.0, 0.0, 0.0], dtype=np.float32)
         reference[3:7] = _random_unit_quaternions(1)[0]
 
-        relative = RootRelative6D.to_relative(action, reference, process_xyz=True)
-        recovered = RootRelative6D.to_absolute(relative, reference, process_xyz=True)
+        relative = Root2Rot6d.to_relative(action, reference, process_xyz=True)
+        recovered = Root2Rot6d.to_absolute(relative, reference, process_xyz=True)
         np.testing.assert_allclose(recovered[:, :3], action[:, :3], atol=1e-5)
-        R_orig = RootRelative6D.quaternion_to_matrix(action[:, 3:7])
-        R_rec = RootRelative6D.quaternion_to_matrix(recovered[:, 3:7])
+        R_orig = Root2Rot6d.quaternion_to_matrix(action[:, 3:7])
+        R_rec = Root2Rot6d.quaternion_to_matrix(recovered[:, 3:7])
         np.testing.assert_allclose(R_orig, R_rec, atol=1e-5)
 
     def test_processor_apply_unapply_roundtrip(self):
-        from gr00t.data.state_action.state_action_processor import RootRelative6D
+        from gr00t.data.state_action.state_action_processor import Root2Rot6d
 
         embodiment = "unitree_g1_smpl"
         modality_configs = {
@@ -397,11 +397,11 @@ class TestSmplFrameRelative6D:
         statistics = {
             embodiment: {
                 "state": {
-                    "robot_root": _smpl_frame_stats(RootRelative6D.RAW_DIM),
+                    "robot_root": _smpl_frame_stats(Root2Rot6d.RAW_DIM),
                     "robot_qpos": _smpl_frame_stats(29),
                 },
                 "action": {
-                    "frame": _smpl_frame_stats(RootRelative6D.FRAME_RAW_DIM),
+                    "frame": _smpl_frame_stats(Root2Rot6d.FRAME_RAW_DIM),
                 },
             }
         }
@@ -413,7 +413,7 @@ class TestSmplFrameRelative6D:
         )
         assert (
             int(proc.norm_params[embodiment]["action"]["frame"]["dim"].item())
-            == RootRelative6D.FRAME_PROCESSED_DIM
+            == Root2Rot6d.FRAME_PROCESSED_DIM
         )
 
         horizon = 5
@@ -423,7 +423,7 @@ class TestSmplFrameRelative6D:
         raw_action = {
             "frame": low
             + (high - low)
-            * np.random.rand(horizon, RootRelative6D.FRAME_RAW_DIM).astype(np.float32)
+            * np.random.rand(horizon, Root2Rot6d.FRAME_RAW_DIM).astype(np.float32)
         }
         raw_action["frame"][:, 72:76] = _random_unit_quaternions(horizon)
 
@@ -434,7 +434,7 @@ class TestSmplFrameRelative6D:
         raw_state["robot_root"][0, 3:7] = _random_unit_quaternions(1)[0]
 
         normalized = proc.apply_action(raw_action, embodiment, state=raw_state)
-        assert normalized["frame"].shape == (horizon, RootRelative6D.FRAME_PROCESSED_DIM)
+        assert normalized["frame"].shape == (horizon, Root2Rot6d.FRAME_PROCESSED_DIM)
 
         recovered = proc.unapply_action(normalized, embodiment, state=raw_state)
         np.testing.assert_allclose(
@@ -443,16 +443,16 @@ class TestSmplFrameRelative6D:
         np.testing.assert_allclose(
             recovered["frame"][:, 76:], raw_action["frame"][:, 76:], atol=1e-4
         )
-        R_orig = RootRelative6D.quaternion_to_matrix(raw_action["frame"][:, 72:76])
-        R_rec = RootRelative6D.quaternion_to_matrix(recovered["frame"][:, 72:76])
+        R_orig = Root2Rot6d.quaternion_to_matrix(raw_action["frame"][:, 72:76])
+        R_rec = Root2Rot6d.quaternion_to_matrix(recovered["frame"][:, 72:76])
         np.testing.assert_allclose(R_orig, R_rec, atol=1e-5)
 
 
 class TestSmplFrameRelativeEuler:
     def test_absolute_and_delta_euler_roundtrip(self):
         from gr00t.data.state_action.state_action_processor import (
-            RootRelative6D,
-            RootRelativeEuler,
+            Root2Rot6d,
+            Root2Euler,
             StateActionProcessor,
         )
 
@@ -476,14 +476,14 @@ class TestSmplFrameRelativeEuler:
         statistics = {
             embodiment: {
                 "state": {
-                    "robot_root": _smpl_frame_stats(RootRelativeEuler.RAW_DIM),
+                    "robot_root": _smpl_frame_stats(Root2Euler.RAW_DIM),
                     "robot_qpos": _smpl_frame_stats(29),
                 },
-                "action": {"frame": _smpl_frame_stats(RootRelativeEuler.FRAME_RAW_DIM)},
+                "action": {"frame": _smpl_frame_stats(Root2Euler.FRAME_RAW_DIM)},
             }
         }
         raw_action = {
-            "frame": np.random.randn(horizon, RootRelativeEuler.FRAME_RAW_DIM).astype(
+            "frame": np.random.randn(horizon, Root2Euler.FRAME_RAW_DIM).astype(
                 np.float32
             )
         }
@@ -493,7 +493,7 @@ class TestSmplFrameRelativeEuler:
             "robot_qpos": np.random.randn(1, 29).astype(np.float32),
         }
         raw_state["robot_root"][0, 3:7] = _random_unit_quaternions(1)[0]
-        R_orig = RootRelative6D.quaternion_to_matrix(raw_action["frame"][:, 72:76])
+        R_orig = Root2Rot6d.quaternion_to_matrix(raw_action["frame"][:, 72:76])
 
         for use_state_euler in (False, True):
             proc = StateActionProcessor(
@@ -506,20 +506,20 @@ class TestSmplFrameRelativeEuler:
             )
             assert (
                 int(proc.norm_params[embodiment]["action"]["frame"]["dim"].item())
-                == RootRelativeEuler.FRAME_PROCESSED_DIM
+                == Root2Euler.FRAME_PROCESSED_DIM
             )
             if use_state_euler:
                 assert (
                     int(proc.norm_params[embodiment]["state"]["robot_root"]["dim"].item())
-                    == RootRelativeEuler.PROCESSED_DIM
+                    == Root2Euler.PROCESSED_DIM
                 )
             normalized = proc.apply_action(raw_action, embodiment, state=raw_state)
             recovered = proc.unapply_action(normalized, embodiment, state=raw_state)
-            R_rec = RootRelative6D.quaternion_to_matrix(recovered["frame"][:, 72:76])
+            R_rec = Root2Rot6d.quaternion_to_matrix(recovered["frame"][:, 72:76])
             np.testing.assert_allclose(R_orig, R_rec, atol=1e-4)
 
     def test_relative_config_enables_state_delta(self):
-        from gr00t.data.state_action.state_action_processor import RootRelativeEuler, StateActionProcessor
+        from gr00t.data.state_action.state_action_processor import Root2Euler, StateActionProcessor
 
         modality_configs = {
             "unitree_g1_smpl": {
@@ -539,4 +539,48 @@ class TestSmplFrameRelativeEuler:
             use_state_euler=False,
         )
         assert proc._wants_state_euler("unitree_g1_smpl")
-        assert RootRelativeEuler.FRAME_PROCESSED_DIM == 81
+        assert Root2Euler.FRAME_PROCESSED_DIM == 81
+
+
+class TestOpenLoopEulerRelDelta:
+    def test_gt_and_pred_euler_delta_helpers(self):
+        from gr00t.data.state_action.state_action_processor import Root2Euler
+        from gr00t.eval.open_loop_eval import (
+            VALID_RELATIVE_ROOT_MODES,
+            _gt_euler_delta_from_absolute_frame,
+            _pred_euler_delta_from_processed_frame,
+        )
+
+        assert "delta_euler" in VALID_RELATIVE_ROOT_MODES
+
+        rng = np.random.default_rng(0)
+        horizon = 8
+        frame = rng.standard_normal((horizon, Root2Euler.FRAME_RAW_DIM)).astype(
+            np.float32
+        )
+        frame[:, 72:76] = _random_unit_quaternions(horizon)
+        reference = np.zeros(Root2Euler.RAW_DIM, dtype=np.float32)
+        reference[3:7] = _random_unit_quaternions(1)[0]
+
+        expected = Root2Euler.to_relative(
+            Root2Euler.pack_frame_root(frame),
+            reference,
+            process_xyz=False,
+            use_state_delta=True,
+        )[:, 3:6]
+        got_gt = _gt_euler_delta_from_absolute_frame(frame, reference)
+        np.testing.assert_allclose(got_gt, expected, atol=1e-5)
+
+        processed = Root2Euler.splice_frame_root(
+            frame,
+            Root2Euler.to_relative(
+                Root2Euler.pack_frame_root(frame),
+                reference,
+                process_xyz=False,
+                use_state_delta=True,
+            ),
+            relative=True,
+        )
+        got_pred = _pred_euler_delta_from_processed_frame(processed)
+        np.testing.assert_allclose(got_pred, expected, atol=1e-5)
+

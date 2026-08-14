@@ -20,8 +20,8 @@ Handles:
 - State normalization (min/max, mean/std, sin/cos encoding)
 - Action normalization
 - Absolute <-> Relative action representation conversion
-- Unitree root relative 6D via RootRelative6D (WBC robot_root / SMPL frame quat)
-- Unitree root Euler via RootRelativeEuler (quat→xyz euler; optional delta vs state)
+- Unitree root relative 6D via Root2Rot6d (WBC robot_root / SMPL frame quat)
+- Unitree root Euler via Root2Euler (quat→xyz euler; optional delta vs state)
 - Action processing with state dependency
 """
 
@@ -52,7 +52,7 @@ from scipy.spatial.transform import Rotation
 logger = logging.getLogger(__name__)
 
 
-class RootRelative6D:
+class Root2Rot6d:
     """Convert a Unitree whole-body action between 36D absolute and 38D relative form.
 
     Raw action layout:
@@ -361,7 +361,7 @@ class RootRelative6D:
         }
 
 
-class RootRelativeEuler:
+class Root2Euler:
     """Convert Unitree root between absolute quat (7D) and Euler xyz (6D).
 
     Raw layout:     xyz(3) + quaternion_wxyz(4)
@@ -372,7 +372,7 @@ class RootRelativeEuler:
       - delta Euler: wrap(action_euler - state_euler), requires state root quat→Euler
 
     SMPL ``frame`` hip ori lives at [72:76] (quat) / [72:75] (euler); same pack/splice
-    pattern as RootRelative6D but quat4→euler3 (82D→81D).
+    pattern as Root2Rot6d but quat4→euler3 (82D→81D).
     """
 
     RAW_DIM = 7
@@ -400,7 +400,7 @@ class RootRelativeEuler:
 
     @classmethod
     def _normalize_quaternion(cls, quaternion: np.ndarray) -> np.ndarray:
-        return RootRelative6D._normalize_quaternion(quaternion)
+        return Root2Rot6d._normalize_quaternion(quaternion)
 
     @classmethod
     def quaternion_to_euler(cls, quaternion_wxyz: np.ndarray) -> np.ndarray:
@@ -501,7 +501,7 @@ class RootRelativeEuler:
             out_euler = action_euler
 
         if process_xyz:
-            reference_rotation = RootRelative6D.quaternion_to_matrix(
+            reference_rotation = Root2Rot6d.quaternion_to_matrix(
                 cls._normalize_quaternion(reference_state[3:7])
             )
             world_delta = action[:, :3] - reference_state[:3]
@@ -554,7 +554,7 @@ class RootRelativeEuler:
 
         if process_xyz:
             if use_state_delta:
-                reference_rotation = RootRelative6D.quaternion_to_matrix(reference_quaternion)
+                reference_rotation = Root2Rot6d.quaternion_to_matrix(reference_quaternion)
                 world_delta = np.einsum("ij,tj->ti", reference_rotation, action[:, :3])
                 absolute_position = reference_state[:3] + world_delta
             else:
@@ -737,7 +737,7 @@ class StateActionProcessor:
                     ):
                         # Unitree root uses synthesized params from absolute 7D
                         # stats (xyz+quat), not joint-style relative_stats.
-                        if RootRelative6D.is_action_key(key) or RootRelativeEuler.is_action_key(
+                        if Root2Rot6d.is_action_key(key) or Root2Euler.is_action_key(
                             key
                         ):
                             continue
@@ -764,7 +764,7 @@ class StateActionProcessor:
                 else set()
             )
             has_root = bool(
-                state_keys.intersection(RootRelative6D.STATE_KEY_CANDIDATES["frame"])
+                state_keys.intersection(Root2Rot6d.STATE_KEY_CANDIDATES["frame"])
             )
             use_state_delta = self._wants_state_euler(embodiment_tag)
 
@@ -775,10 +775,10 @@ class StateActionProcessor:
                         continue
                     if (
                         key == "robot_root"
-                        and int(params["dim"].item()) == RootRelativeEuler.RAW_DIM
+                        and int(params["dim"].item()) == Root2Euler.RAW_DIM
                     ):
                         self.norm_params[embodiment_tag]["action"][key] = (
-                            RootRelativeEuler.build_normalization_params(
+                            Root2Euler.build_normalization_params(
                                 params,
                                 process_xyz=True,
                                 use_state_delta=use_state_delta,
@@ -789,28 +789,28 @@ class StateActionProcessor:
                             "(use_state_delta=%s)",
                             embodiment_tag,
                             key,
-                            RootRelativeEuler.RAW_DIM,
-                            RootRelativeEuler.PROCESSED_DIM,
+                            Root2Euler.RAW_DIM,
+                            Root2Euler.PROCESSED_DIM,
                             use_state_delta,
                         )
                     elif (
                         key == "frame"
                         and has_root
-                        and int(params["dim"].item()) == RootRelativeEuler.FRAME_RAW_DIM
+                        and int(params["dim"].item()) == Root2Euler.FRAME_RAW_DIM
                     ):
-                        root_norm = RootRelativeEuler.build_normalization_params(
+                        root_norm = Root2Euler.build_normalization_params(
                             {
                                 "min": np.zeros(
-                                    RootRelativeEuler.RAW_DIM, dtype=params["min"].dtype
+                                    Root2Euler.RAW_DIM, dtype=params["min"].dtype
                                 ),
                                 "max": np.ones(
-                                    RootRelativeEuler.RAW_DIM, dtype=params["max"].dtype
+                                    Root2Euler.RAW_DIM, dtype=params["max"].dtype
                                 ),
                                 "mean": np.zeros(
-                                    RootRelativeEuler.RAW_DIM, dtype=params["mean"].dtype
+                                    Root2Euler.RAW_DIM, dtype=params["mean"].dtype
                                 ),
                                 "std": np.ones(
-                                    RootRelativeEuler.RAW_DIM, dtype=params["std"].dtype
+                                    Root2Euler.RAW_DIM, dtype=params["std"].dtype
                                 ),
                             },
                             process_xyz=False,
@@ -822,15 +822,15 @@ class StateActionProcessor:
                             )
                             for k in ("min", "max", "mean", "std")
                         }
-                        rewritten["dim"] = np.array(RootRelativeEuler.FRAME_PROCESSED_DIM)
+                        rewritten["dim"] = np.array(Root2Euler.FRAME_PROCESSED_DIM)
                         self.norm_params[embodiment_tag]["action"][key] = rewritten
                         logger.info(
                             "Enabled Unitree relative root Euler for %s/%s: %dD -> %dD "
                             "(use_state_delta=%s)",
                             embodiment_tag,
                             key,
-                            RootRelativeEuler.FRAME_RAW_DIM,
-                            RootRelativeEuler.FRAME_PROCESSED_DIM,
+                            Root2Euler.FRAME_RAW_DIM,
+                            Root2Euler.FRAME_PROCESSED_DIM,
                             use_state_delta,
                         )
 
@@ -839,29 +839,29 @@ class StateActionProcessor:
                         state_params = self.norm_params[embodiment_tag]["state"].get(state_key)
                         if (
                             state_params is not None
-                            and int(state_params["dim"].item()) == RootRelativeEuler.RAW_DIM
+                            and int(state_params["dim"].item()) == Root2Euler.RAW_DIM
                         ):
                             self.norm_params[embodiment_tag]["state"][state_key] = (
-                                RootRelativeEuler.build_state_normalization_params(state_params)
+                                Root2Euler.build_state_normalization_params(state_params)
                             )
                             logger.info(
                                 "Enabled state root Euler for %s/%s: %dD -> %dD",
                                 embodiment_tag,
                                 state_key,
-                                RootRelativeEuler.RAW_DIM,
-                                RootRelativeEuler.PROCESSED_DIM,
+                                Root2Euler.RAW_DIM,
+                                Root2Euler.PROCESSED_DIM,
                             )
             else:
                 if self.use_relative_action:
                     for key in modality_keys:
                         params = self.norm_params[embodiment_tag]["action"].get(key)
                         if (
-                            RootRelative6D.is_action_key(key)
+                            Root2Rot6d.is_action_key(key)
                             and params is not None
-                            and int(params["dim"].item()) == RootRelative6D.RAW_DIM
+                            and int(params["dim"].item()) == Root2Rot6d.RAW_DIM
                         ):
                             self.norm_params[embodiment_tag]["action"][key] = (
-                                RootRelative6D.build_normalization_params(
+                                Root2Rot6d.build_normalization_params(
                                     params, process_xyz=True
                                 )
                             )
@@ -869,8 +869,8 @@ class StateActionProcessor:
                                 "Enabled Unitree relative root 6D processing for %s/%s: %dD -> %dD",
                                 embodiment_tag,
                                 key,
-                                RootRelative6D.RAW_DIM,
-                                RootRelative6D.PROCESSED_DIM,
+                                Root2Rot6d.RAW_DIM,
+                                Root2Rot6d.PROCESSED_DIM,
                             )
 
                 # SMPL frame: 82->84 when state provides robot_root (rot6d).
@@ -880,29 +880,29 @@ class StateActionProcessor:
                         key != "frame"
                         or not has_root
                         or params is None
-                        or int(params["dim"].item()) != RootRelative6D.FRAME_RAW_DIM
+                        or int(params["dim"].item()) != Root2Rot6d.FRAME_RAW_DIM
                     ):
                         continue
-                    root_norm = RootRelative6D.build_normalization_params(
+                    root_norm = Root2Rot6d.build_normalization_params(
                         {
-                            "min": np.zeros(RootRelative6D.RAW_DIM, dtype=params["min"].dtype),
-                            "max": np.ones(RootRelative6D.RAW_DIM, dtype=params["max"].dtype),
-                            "mean": np.zeros(RootRelative6D.RAW_DIM, dtype=params["mean"].dtype),
-                            "std": np.ones(RootRelative6D.RAW_DIM, dtype=params["std"].dtype),
+                            "min": np.zeros(Root2Rot6d.RAW_DIM, dtype=params["min"].dtype),
+                            "max": np.ones(Root2Rot6d.RAW_DIM, dtype=params["max"].dtype),
+                            "mean": np.zeros(Root2Rot6d.RAW_DIM, dtype=params["mean"].dtype),
+                            "std": np.ones(Root2Rot6d.RAW_DIM, dtype=params["std"].dtype),
                         }
                     )
                     rewritten = {
                         k: np.concatenate((params[k][:72], root_norm[k][3:9], params[k][76:82]))
                         for k in ("min", "max", "mean", "std")
                     }
-                    rewritten["dim"] = np.array(RootRelative6D.FRAME_PROCESSED_DIM)
+                    rewritten["dim"] = np.array(Root2Rot6d.FRAME_PROCESSED_DIM)
                     self.norm_params[embodiment_tag]["action"][key] = rewritten
                     logger.info(
                         "Enabled Unitree relative root 6D processing for %s/%s: %dD -> %dD",
                         embodiment_tag,
                         key,
-                        RootRelative6D.FRAME_RAW_DIM,
-                        RootRelative6D.FRAME_PROCESSED_DIM,
+                        Root2Rot6d.FRAME_RAW_DIM,
+                        Root2Rot6d.FRAME_PROCESSED_DIM,
                     )
 
     def _root_action_is_relative(self, embodiment_tag: str) -> bool:
@@ -910,7 +910,7 @@ class StateActionProcessor:
         if action_cfg is None or action_cfg.action_configs is None:
             return False
         for key, action_config in zip(action_cfg.modality_keys, action_cfg.action_configs):
-            if RootRelativeEuler.is_action_key(key) and (
+            if Root2Euler.is_action_key(key) and (
                 action_config.rep == ActionRepresentation.RELATIVE
             ):
                 return True
@@ -926,29 +926,29 @@ class StateActionProcessor:
         """Same gate as the verified WBC path; ``frame`` uses processed 84D dim."""
         if self.use_relative_euler:
             return False
-        if not RootRelative6D.is_action_key(key):
+        if not Root2Rot6d.is_action_key(key):
             return False
         params = self.norm_params.get(embodiment_tag, {}).get("action", {}).get(key)
         if params is None:
             return False
         dim = int(params["dim"].item())
         if key == "robot_root":
-            return self.use_relative_action and dim == RootRelative6D.PROCESSED_DIM
+            return self.use_relative_action and dim == Root2Rot6d.PROCESSED_DIM
         if key == "frame":
-            return dim == RootRelative6D.FRAME_PROCESSED_DIM
+            return dim == Root2Rot6d.FRAME_PROCESSED_DIM
         return False
 
     def _uses_unitree_root_relative_euler(self, embodiment_tag: str, key: str) -> bool:
-        if not self.use_relative_euler or not RootRelativeEuler.is_action_key(key):
+        if not self.use_relative_euler or not Root2Euler.is_action_key(key):
             return False
         params = self.norm_params.get(embodiment_tag, {}).get("action", {}).get(key)
         if params is None:
             return False
         dim = int(params["dim"].item())
         if key == "robot_root":
-            return dim == RootRelativeEuler.PROCESSED_DIM
+            return dim == Root2Euler.PROCESSED_DIM
         if key == "frame":
-            return dim == RootRelativeEuler.FRAME_PROCESSED_DIM
+            return dim == Root2Euler.FRAME_PROCESSED_DIM
         return False
 
     @staticmethod
@@ -963,7 +963,7 @@ class StateActionProcessor:
         if state is None:
             return None
         state = self._strip_state_prefix(state)
-        candidates = RootRelative6D.STATE_KEY_CANDIDATES[action_key]
+        candidates = Root2Rot6d.STATE_KEY_CANDIDATES[action_key]
         for candidate in candidates:
             if candidate in state:
                 return np.asarray(state[candidate])
@@ -984,8 +984,8 @@ class StateActionProcessor:
             action = np.asarray(action)
             if action_key == "frame":
                 frame0 = action[0] if action.ndim == 2 else action[0, 0]
-                root = np.zeros(RootRelative6D.RAW_DIM, dtype=action.dtype)
-                if frame0.shape[-1] >= RootRelativeEuler.FRAME_PROCESSED_DIM and (
+                root = np.zeros(Root2Rot6d.RAW_DIM, dtype=action.dtype)
+                if frame0.shape[-1] >= Root2Euler.FRAME_PROCESSED_DIM and (
                     self.use_relative_euler
                 ):
                     # Should not happen on training apply (raw 82D); keep quat path.
@@ -1004,8 +1004,8 @@ class StateActionProcessor:
             )
         # apply_action always receives raw state (quat 7D). If somehow 6D euler leaked in,
         # convert back so RootRelative* to_relative gets (7,) quat root.
-        if self.use_relative_euler and ref.shape[-1] == RootRelativeEuler.PROCESSED_DIM:
-            ref = RootRelativeEuler.root_euler_to_quat_root(ref)
+        if self.use_relative_euler and ref.shape[-1] == Root2Euler.PROCESSED_DIM:
+            ref = Root2Euler.root_euler_to_quat_root(ref)
         return ref
 
     def _convert_unitree_to_absolute(
@@ -1018,7 +1018,7 @@ class StateActionProcessor:
         reference_array = self._get_unitree_reference_array(state, action_key)
         if reference_array is None:
             raise ValueError(
-                f"State containing one of {RootRelative6D.STATE_KEY_CANDIDATES[action_key]} "
+                f"State containing one of {Root2Rot6d.STATE_KEY_CANDIDATES[action_key]} "
                 f"is required to decode relative Unitree root action '{action_key}'"
             )
 
@@ -1035,35 +1035,35 @@ class StateActionProcessor:
         use_state_delta = self._wants_state_euler(embodiment_tag)
 
         def _coerce_reference(reference: np.ndarray) -> np.ndarray:
-            if reference.shape[-1] == RootRelativeEuler.PROCESSED_DIM and use_euler:
-                return RootRelativeEuler.root_euler_to_quat_root(reference)
+            if reference.shape[-1] == Root2Euler.PROCESSED_DIM and use_euler:
+                return Root2Euler.root_euler_to_quat_root(reference)
             return reference
 
         def _one(sample_action: np.ndarray, reference: np.ndarray) -> np.ndarray:
             reference = _coerce_reference(reference)
             if use_euler:
                 if action_key == "frame":
-                    absolute_root = RootRelativeEuler.to_absolute(
-                        RootRelativeEuler.pack_frame_root(sample_action, relative=True),
+                    absolute_root = Root2Euler.to_absolute(
+                        Root2Euler.pack_frame_root(sample_action, relative=True),
                         reference,
                         process_xyz=process_xyz,
                         use_state_delta=use_state_delta,
                     )
-                    return RootRelativeEuler.splice_frame_root(sample_action, absolute_root)
-                return RootRelativeEuler.to_absolute(
+                    return Root2Euler.splice_frame_root(sample_action, absolute_root)
+                return Root2Euler.to_absolute(
                     sample_action,
                     reference,
                     process_xyz=process_xyz,
                     use_state_delta=use_state_delta,
                 )
             if action_key == "frame":
-                absolute_root = RootRelative6D.to_absolute(
-                    RootRelative6D.pack_frame_root(sample_action, relative=True),
+                absolute_root = Root2Rot6d.to_absolute(
+                    Root2Rot6d.pack_frame_root(sample_action, relative=True),
                     reference,
                     process_xyz=process_xyz,
                 )
-                return RootRelative6D.splice_frame_root(sample_action, absolute_root)
-            return RootRelative6D.to_absolute(
+                return Root2Rot6d.splice_frame_root(sample_action, absolute_root)
+            return Root2Rot6d.to_absolute(
                 sample_action, reference, process_xyz=process_xyz
             )
 
@@ -1130,10 +1130,10 @@ class StateActionProcessor:
             # Optional: robot_root quat → euler before normalize (delta-Euler modes).
             if (
                 self._wants_state_euler(embodiment_tag)
-                and joint_group in RootRelativeEuler.STATE_KEY_CANDIDATES["frame"]
-                and np.asarray(state[joint_group]).shape[-1] == RootRelativeEuler.RAW_DIM
+                and joint_group in Root2Euler.STATE_KEY_CANDIDATES["frame"]
+                and np.asarray(state[joint_group]).shape[-1] == Root2Euler.RAW_DIM
             ):
-                state[joint_group] = RootRelativeEuler.root_quat_to_euler_root(
+                state[joint_group] = Root2Euler.root_quat_to_euler_root(
                     state[joint_group]
                 )
 
@@ -1201,11 +1201,11 @@ class StateActionProcessor:
             # Optional: euler → quat after unnormalize (delta-Euler modes).
             if (
                 self._wants_state_euler(embodiment_tag)
-                and joint_group in RootRelativeEuler.STATE_KEY_CANDIDATES["frame"]
+                and joint_group in Root2Euler.STATE_KEY_CANDIDATES["frame"]
                 and unnormalized_values[joint_group].shape[-1]
-                == RootRelativeEuler.PROCESSED_DIM
+                == Root2Euler.PROCESSED_DIM
             ):
-                unnormalized_values[joint_group] = RootRelativeEuler.root_euler_to_quat_root(
+                unnormalized_values[joint_group] = Root2Euler.root_euler_to_quat_root(
                     unnormalized_values[joint_group]
                 )
 
@@ -1230,14 +1230,14 @@ class StateActionProcessor:
                     )
                 reference = self._get_unitree_reference_for_training(state, key, action[key])
                 if key == "frame":
-                    relative_root = RootRelative6D.to_relative(
-                        RootRelative6D.pack_frame_root(action[key]), reference
+                    relative_root = Root2Rot6d.to_relative(
+                        Root2Rot6d.pack_frame_root(action[key]), reference
                     )
-                    action[key] = RootRelative6D.splice_frame_root(
+                    action[key] = Root2Rot6d.splice_frame_root(
                         action[key], relative_root, relative=True
                     )
                 else:
-                    action[key] = RootRelative6D.to_relative(
+                    action[key] = Root2Rot6d.to_relative(
                         action[key], reference, process_xyz=True
                     )
                 special_keys.add(key)
@@ -1249,17 +1249,17 @@ class StateActionProcessor:
                 reference = self._get_unitree_reference_for_training(state, key, action[key])
                 use_state_delta = self._wants_state_euler(embodiment_tag)
                 if key == "frame":
-                    relative_root = RootRelativeEuler.to_relative(
-                        RootRelativeEuler.pack_frame_root(action[key]),
+                    relative_root = Root2Euler.to_relative(
+                        Root2Euler.pack_frame_root(action[key]),
                         reference,
                         process_xyz=False,
                         use_state_delta=use_state_delta,
                     )
-                    action[key] = RootRelativeEuler.splice_frame_root(
+                    action[key] = Root2Euler.splice_frame_root(
                         action[key], relative_root, relative=True
                     )
                 else:
-                    action[key] = RootRelativeEuler.to_relative(
+                    action[key] = Root2Euler.to_relative(
                         action[key],
                         reference,
                         process_xyz=True,
@@ -1316,6 +1316,8 @@ class StateActionProcessor:
         action: dict[str, np.ndarray],
         embodiment_tag: str,
         state: dict[str, np.ndarray] | None = None,
+        *,
+        to_absolute: bool = True,
     ) -> dict[str, np.ndarray]:
         unnormalized_values = {}
         modality_keys = self.modality_configs[embodiment_tag]["action"].modality_keys
@@ -1338,14 +1340,15 @@ class StateActionProcessor:
             unnormalized_values[joint_group] = unnormalized
 
         special_keys = set()
-        for key in modality_keys:
-            if self._uses_unitree_root_relative_6d(
-                embodiment_tag, key
-            ) or self._uses_unitree_root_relative_euler(embodiment_tag, key):
-                unnormalized_values[key] = self._convert_unitree_to_absolute(
-                    unnormalized_values[key], state, key
-                )
-                special_keys.add(key)
+        if to_absolute:
+            for key in modality_keys:
+                if self._uses_unitree_root_relative_6d(
+                    embodiment_tag, key
+                ) or self._uses_unitree_root_relative_euler(embodiment_tag, key):
+                    unnormalized_values[key] = self._convert_unitree_to_absolute(
+                        unnormalized_values[key], state, key
+                    )
+                    special_keys.add(key)
 
         action_configs = self.modality_configs[embodiment_tag]["action"].action_configs
         if action_configs is not None:

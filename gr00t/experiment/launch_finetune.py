@@ -23,6 +23,12 @@ import tyro
 
 from gr00t.configs.base_config import get_default_config
 from gr00t.configs.finetune_config import FinetuneConfig
+from copy import deepcopy
+
+from gr00t.configs.smpl_root_mode import (
+    assert_resume_root_setup_matches,
+    patch_modality_configs_for_root_mode,
+)
 from gr00t.experiment.experiment import run
 
 
@@ -51,6 +57,24 @@ if __name__ == "__main__":
     ft_config.embodiment_tag = EmbodimentTag.resolve(ft_config.embodiment_tag)
     embodiment_tag = ft_config.embodiment_tag.value
 
+    setup = ft_config.smpl_root_setup
+    assert setup is not None
+    print(
+        f"SMPL root training: mode={setup.root_process_mode!r}, "
+        f"action_mode={setup.action_mode!r}, "
+        f"use_relative_euler={setup.use_relative_euler}, "
+        f"use_state_euler={setup.use_state_euler}, "
+        f"state.robot_root={setup.include_state_robot_root}"
+    )
+
+    if ft_config.resume_from_checkpoint:
+        assert_resume_root_setup_matches(
+            output_dir=ft_config.output_dir,
+            experiment_name=ft_config.experiment_name,
+            setup=setup,
+            embodiment_tag=embodiment_tag,
+        )
+
     # all rank workers should register for the modality config
     if ft_config.modality_config_path is not None:
         load_modality_config(ft_config.modality_config_path)
@@ -72,6 +96,12 @@ if __name__ == "__main__":
         }
     )
     config.load_config_path = None
+
+    config.data.modality_configs = patch_modality_configs_for_root_mode(
+        deepcopy(config.data.modality_configs),
+        embodiment_tag,
+        setup,
+    )
 
     # overwrite with finetune config supplied by the user
     config.model.tune_llm = ft_config.tune_llm

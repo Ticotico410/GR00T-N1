@@ -15,25 +15,27 @@
 
 """Modality config for Unitree G1 predicting SMPL skeletal actions.
 
-Action (dims after processor depend on root mode):
+Action (dims after processor depend on ``--root-process-mode``):
   - frame:      82-dim SMPL skeletal
-                - default (rot6d): → 84-dim after hip-root relative rot6D
-                  (frame[72:76] wxyz quat via RootRelative6D, process_xyz=False)
-                - --use-relative-euler: → 81-dim after hip quat→xyz Euler
-                  (RootRelativeEuler; optional --use-state-euler for delta vs state)
+                - original: 82-dim absolute hip quat (state drops robot_root)
+                - rot6d: → 84-dim hip relative rot6D (state.robot_root ref)
+                - delta_euler / euler relative: → 81-dim Δeuler vs state
+                - euler absolute: → 81-dim absolute Euler
   - left_hand:  6-dim hand command
   - right_hand: 6-dim hand command
 
-State (48 dims, or 47 when --use-state-euler / frame ActionConfig.RELATIVE):
+State (48 dims when robot_root present; 41 dims in original mode):
   - left_hand / right_hand: hand_state (12)
-  - robot_root: robot_q_current[0:7] (xyz + wxyz quat) — reference for frame
-                (converted to xyz+euler when delta-Euler mode is on)
+  - robot_root: robot_q_current[0:7] (xyz + wxyz quat) — reference for frame root
   - robot_qpos: robot_q_current[7:36] (29 joint angles)
 
-Video: head stereo + both wrists (same as WBC).
+Training flags (see gr00t/configs/smpl_root_mode.py):
+  - ``--root-process-mode original|rot6d|delta_euler|euler``
+  - ``--action-mode absolute|relative`` (euler only)
+  - Checkpoint stores use_relative_euler / use_state_euler + full modality_configs.
 
-Hand actions use ABSOLUTE. For Euler delta mode either pass --use-state-euler or set
-the frame ActionConfig.rep to RELATIVE (first action_configs entry).
+Hand actions use ABSOLUTE. frame ActionConfig stays ABSOLUTE; do not use rep=RELATIVE
+for root (use root-process-mode / action-mode instead).
 """
 
 from gr00t.configs.data.embodiment_configs import register_modality_config
@@ -68,8 +70,7 @@ unitree_g1_smpl_config = {
         ],
     ),
     # Action: predict horizon @ 30 fps
-    # frame: ABSOLUTE + default rot6d → 84D; with --use-relative-euler → 81D
-    # Set frame rep=RELATIVE (or pass --use-state-euler) for delta(action_euler-state_euler)
+    # frame ActionConfig stays ABSOLUTE; root ref via ACTION_MODE + USE_RELATIVE_EULER
     "action": ModalityConfig(
         delta_indices=list(range(0, 50)),
         modality_keys=[

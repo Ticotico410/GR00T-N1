@@ -43,33 +43,29 @@ tmux new -s train_gr00t_n1d7
 source /sh/ycb/venvs/gr00t_n1d7/bin/activate
 cd /sh/ycb/model/GR00T
 bash train.sh
-```
 
-#### SMPL root 表示模式
-
-```bash
-# A) 默认 relative rot6d
-bash train.sh
-
-# B) 绝对欧拉角：action quat→xyz Euler，独立学习，单独归一化
-USE_RELATIVE_EULER=1 bash train.sh
-# 等价: launch_finetune.py ... --use-relative-euler
-
-# C) 增量欧拉角：delta = wrap(action_euler - state_euler)，state.robot_root 也转欧拉
-USE_RELATIVE_EULER=1 USE_STATE_EULER=1 bash train.sh
-# 等价: launch_finetune.py ... --use-relative-euler --use-state-euler
-
-# D) 也可用 modality config 触发 delta：把 frame 的 ActionConfig.rep 改成 RELATIVE
-#     （examples/G1/smpl/unitree_g1_smpl_config.py 第一个 action_configs），再：
-USE_RELATIVE_EULER=1 bash train.sh
-```
-
-```bash
 # Detach / reattach / kill
 # Detach: Ctrl-b then d
 tmux attach -t train_gr00t_n1d7
 tmux ls
 pkill -KILL -f 'gr00t/experiment/launch_finetune.py' || true
+```
+
+#### SMPL root 表示模式
+
+| 模式 | 命令 | action-mode |
+|------|------|-------------|
+| original（默认） | `bash train.sh --root-process-mode original` | N/A |
+| rot6d | `--root-process-mode rot6d --action-mode relative` | 仅 relative |
+| delta_euler | `--root-process-mode delta_euler` | 固定 relative |
+| euler | `--root-process-mode euler --action-mode relative\|absolute` | relative / absolute |
+
+```bash
+bash train.sh --root-process-mode original
+bash train.sh --root-process-mode rot6d --action-mode relative
+bash train.sh --root-process-mode delta_euler
+bash train.sh --root-process-mode euler --action-mode relative
+bash train.sh --root-process-mode euler --action-mode absolute
 ```
 ---
 ### Open-loop eval — on training server (uses `/sh/ycb` Cosmos)
@@ -87,18 +83,29 @@ python gr00t/eval/open_loop_eval.py \
   --dataset-path /sh/datasets/g1/smpl/tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/lerobot_v2.1 \
   --embodiment-tag UNITREE_G1_SMPL \
   --model-path /sh/ycb/checkpoints/GR00T_N1d7_g1_100k_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/GR00T_N1d7_g1_100k_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/checkpoint-40000 \
-  --save_plot_path /sh/ycb/checkpoints/GR00T_N1d7_g1_100k_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/GR00T_N1d7_g1_100k_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/checkpoint-40000/open_loop_eval/rot6d/traj_0.jpeg \
+  --save_plot_path /sh/ycb/checkpoints/GR00T_N1d7_g1_100k_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/GR00T_N1d7_g1_100k_smpl_rel_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/checkpoint-40000/open_loop_eval/rot6d \
   --traj-ids 0 \
   --denoising-steps 4 \
   --action-horizon 50 \
   --steps 1500 \
   --video-backend pyav \
-  --relative-root-mode rot6d
+  --root-process-mode rot6d
 
-# 绝对欧拉 / 增量欧拉 checkpoint：processor 已写入 use_relative_euler / use_state_euler，
-# 解码走 unapply；对比空间可仍用 rot6d 或 absolute：
-#   --relative-root-mode absolute
-#   --relative-root-mode rot6d
+# 增量欧拉 checkpoint（USE_RELATIVE_EULER=1 USE_STATE_EULER=1）
+python gr00t/eval/open_loop_eval.py \
+  --dataset-path /sh/datasets/g1/smpl/tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/lerobot_v2.1 \
+  --embodiment-tag UNITREE_G1_SMPL \
+  --model-path /sh/ycb/checkpoints/GR00T_N1d7_100k_g1_smpl_euler_delta_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/checkpoint-90000 \
+  --save_plot_path /sh/ycb/checkpoints/GR00T_N1d7_100k_g1_smpl_euler_delta_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/checkpoint-90000/open_loop_eval/delta_euler \
+  --traj-ids 0 \
+  --denoising-steps 4 \
+  --action-horizon 50 \
+  --steps 1500 \
+  --video-backend pyav \
+  --root-process-mode delta_euler
+
+# delta_euler / euler / original 开环命名与训练一致
+# EMA（可选）: --ema-alpha 0.25  （delta_euler / rot6d / trans9d）
 ```
 
 ### Open-loop — on local machine (uses home NVMe Cosmos)
@@ -111,5 +118,7 @@ bash eval_open_loop.sh
 ### Finetune specific parameters
 ```bash
 gr00t/configs/finetune_config.py
-# --use-relative-euler / --use-state-euler
+# --root-process-mode original|rot6d|delta_euler|euler
+# --action-mode absolute|relative  (euler only; rot6d/delta_euler fixed relative)
+# Legacy: --use-relative-euler / --use-state-euler (when root-process-mode unset)
 ```

@@ -1,21 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 # Finetune config used for single node post-training.
 from dataclasses import dataclass
 import warnings
+
+from gr00t.configs.smpl_root_mode import (
+    ActionMode,
+    RootProcessMode,
+    SmplRootTrainingSetup,
+    resolve_smpl_root_training,
+)
 
 
 @dataclass
@@ -177,18 +172,31 @@ class FinetuneConfig:
     The processor (tokenizer/config) is still loaded from base_model_path.
     Useful for CI/testing to skip the slow checkpoint shard loading."""
 
+    root_process_mode: RootProcessMode = "original"
+    """SMPL hip root target space: original (82D quat) | rot6d (84D) | euler | delta_euler (81D)."""
+
+    action_mode: ActionMode | None = None
+    """Whether state.robot_root is the Euler reference (euler mode only).
+    rot6d / delta_euler: fixed relative. original: N/A."""
+
     use_relative_euler: bool = False
-    """If True, convert root quaternion to xyz Euler (SMPL frame / WBC robot_root)
-    instead of relative rot6D. Dedicated min/max normalization for Euler dims."""
+    """Legacy alias; prefer ``--root-process-mode euler|delta_euler``."""
 
     use_state_euler: bool = False
-    """Requires use_relative_euler. If True, learn wrap(action_euler - state_euler)
-    and also convert state robot_root quat→Euler. Equivalent trigger: set frame/root
-    ActionConfig.rep=RELATIVE in the modality config."""
+    """Legacy alias; prefer ``--root-process-mode delta_euler`` or euler + action-mode."""
+
+    smpl_root_setup: SmplRootTrainingSetup | None = None
+    """Resolved in ``__post_init__``; do not set manually."""
 
     def __post_init__(self) -> None:
-        if self.use_state_euler and not self.use_relative_euler:
-            raise ValueError("use_state_euler=True requires use_relative_euler=True")
+        self.smpl_root_setup = resolve_smpl_root_training(
+            root_process_mode=self.root_process_mode,
+            action_mode=self.action_mode,
+            legacy_use_relative_euler=self.use_relative_euler,
+            legacy_use_state_euler=self.use_state_euler,
+        )
+        self.use_relative_euler = self.smpl_root_setup.use_relative_euler
+        self.use_state_euler = self.smpl_root_setup.use_state_euler
         if self.gradient_accumulation_steps < 1:
             raise ValueError(
                 f"gradient_accumulation_steps must be >= 1, got {self.gradient_accumulation_steps}"

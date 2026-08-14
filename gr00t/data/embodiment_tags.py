@@ -168,7 +168,7 @@ class EmbodimentTag(Enum):
     UNITREE_G1_SMPL = "unitree_g1_smpl"
     """
     Real-world Unitree G1 predicting SMPL skeletal actions (82-dim frame, 84-dim
-    after hip-root relative rot6D via RootRelative6D) + hand commands (12). State
+    after hip-root relative rot6D via Root2Rot6d) + hand commands (12). State
     uses robot_root (7) + robot joint qpos (29) plus hand_state (12). Same
     4-camera setup as WBC. Uses the custom-embodiment finetuning projector slot.
     """

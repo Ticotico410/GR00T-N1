@@ -59,6 +59,19 @@ def _rec_to_dtype(x: Any, dtype: torch.dtype) -> Any:
         return x
 
 
+def _resolve_processor_dir(model_dir: Path) -> Path:
+    """Locate processor configs for a checkpoint."""
+    candidates = (
+        model_dir,
+        model_dir / "processor",
+        model_dir.parent / "processor",
+    )
+    for candidate in candidates:
+        if (candidate / "processor_config.json").is_file():
+            return candidate
+    return model_dir
+
+
 class Gr00tPolicy(BasePolicy):
     """Core policy class for Gr00t model inference.
 
@@ -121,15 +134,9 @@ class Gr00tPolicy(BasePolicy):
         self.model = model
 
         # Load the processor for input/output transformation.
-        # Training saves processor files under a "processor/" subdirectory, but
-        # AutoProcessor expects them at the model root.  Fall back to the
-        # subdirectory when the root lacks a processor_config.json.
-        processor_dir = (
-            model_dir / "processor"
-            if (model_dir / "processor").is_dir()
-            and not (model_dir / "processor_config.json").exists()
-            else model_dir
-        )
+        processor_dir = _resolve_processor_dir(model_dir)
+        if processor_dir != model_dir:
+            print(f"[Gr00tPolicy] Loading processor from: {processor_dir}", flush=True)
         self.processor: BaseProcessor = AutoProcessor.from_pretrained(
             processor_dir, **load_kwargs
         )
@@ -440,8 +447,12 @@ class Gr00tPolicy(BasePolicy):
         for k in state_keys:
             if all(k in sample_states for sample_states in states):
                 batched_states[k] = np.stack([s[k] for s in states], axis=0)  # (B, T, D)
+        to_absolute = True if options is None else options.get("to_absolute", True)
         unnormalized_action = self.processor.decode_action(
-            normalized_action.cpu().numpy(), self.embodiment_tag, batched_states
+            normalized_action.cpu().numpy(),
+            self.embodiment_tag,
+            batched_states,
+            to_absolute=to_absolute,
         )
 
         # Cast all actions to float32 for consistency

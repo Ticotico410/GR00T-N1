@@ -323,8 +323,10 @@ class Gr00tN1d7Processor(BaseProcessor):
         action: np.ndarray,
         embodiment_tag: EmbodimentTag,
         state: dict[str, np.ndarray] | None = None,
+        *,
+        to_absolute: bool = True,
     ):
-        """Undo action normalization and convert relative actions to absolute."""
+        """Undo action normalization; optionally convert relative actions to absolute."""
         # Split concatenated action into joint groups
         out_dict = {}
         start_idx = 0
@@ -337,9 +339,9 @@ class Gr00tN1d7Processor(BaseProcessor):
             out_dict[key] = action[..., :action_horizon, start_idx : start_idx + joint_dim]
             start_idx += joint_dim
 
-        # Use StateActionProcessor to unnormalize and convert to absolute
+        # Use StateActionProcessor to unnormalize (and optionally convert to absolute)
         return self.state_action_processor.unapply_action(
-            out_dict, embodiment_tag.value, state=state
+            out_dict, embodiment_tag.value, state=state, to_absolute=to_absolute
         )
 
     def unapply(

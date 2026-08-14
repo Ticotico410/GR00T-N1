@@ -28,11 +28,17 @@ RESUME_FROM_CHECKPOINT="${RESUME_FROM_CHECKPOINT:-0}"
 # export WANDB_RESUME=allow
 # RESUME_FROM_CHECKPOINT=1
 
-# Root representation (SMPL): default rot6d; Euler via flags below
-# USE_RELATIVE_EULER=1 USE_STATE_EULER=0  → absolute Euler on action
-# USE_RELATIVE_EULER=1 USE_STATE_EULER=1  → delta(action_euler - state_euler)
+# SMPL root training (see gr00t/configs/smpl_root_mode.py):
+#   original     — 82D hip quat absolute; state drops robot_root (default)
+#   rot6d        — 84D hip rot6d; --action-mode relative only
+#   delta_euler  — 81D Δeuler vs state; fixed relative
+#   euler        — 81D hip euler; --action-mode absolute|relative
+# CLI: bash train.sh --root-process-mode rot6d --action-mode relative
+# Legacy env (when ROOT_PROCESS_MODE unset): USE_RELATIVE_EULER / USE_STATE_EULER
+ROOT_PROCESS_MODE="${ROOT_PROCESS_MODE:-}"
 USE_RELATIVE_EULER="${USE_RELATIVE_EULER:-0}"
 USE_STATE_EULER="${USE_STATE_EULER:-0}"
+ACTION_MODE="${ACTION_MODE:-}"
 
 cd "${PROJECT_ROOT}"
 source "${VENV_PATH}"
@@ -152,16 +158,29 @@ if [[ "${RESUME_FROM_CHECKPOINT}" == "1" || "${RESUME_FROM_CHECKPOINT}" == "true
   RESUME_ARGS+=(--resume-from-checkpoint)
 fi
 
-EULER_ARGS=()
-if [[ "${USE_RELATIVE_EULER}" == "1" || "${USE_RELATIVE_EULER}" == "true" ]]; then
-  EULER_ARGS+=(--use-relative-euler)
+ROOT_ARGS=()
+if [[ -n "${ROOT_PROCESS_MODE}" ]]; then
+  ROOT_ARGS+=(--root-process-mode "${ROOT_PROCESS_MODE}")
 fi
-if [[ "${USE_STATE_EULER}" == "1" || "${USE_STATE_EULER}" == "true" ]]; then
-  EULER_ARGS+=(--use-state-euler)
+if [[ -n "${ACTION_MODE}" ]]; then
+  ROOT_ARGS+=(--action-mode "${ACTION_MODE}")
 fi
 
+LEGACY_ARGS=()
+if [[ -z "${ROOT_PROCESS_MODE}" ]]; then
+  if [[ "${USE_RELATIVE_EULER}" == "1" || "${USE_RELATIVE_EULER}" == "true" ]]; then
+    LEGACY_ARGS+=(--use-relative-euler)
+  fi
+  if [[ "${USE_STATE_EULER}" == "1" || "${USE_STATE_EULER}" == "true" ]]; then
+    LEGACY_ARGS+=(--use-state-euler)
+  fi
+fi
+
+echo "ROOT_PROCESS_MODE=${ROOT_PROCESS_MODE:-original (default)}"
 echo "USE_RELATIVE_EULER=${USE_RELATIVE_EULER}"
 echo "USE_STATE_EULER=${USE_STATE_EULER}"
+echo "ACTION_MODE=${ACTION_MODE:-<unset>}"
+echo "Extra CLI args: $*"
 
 python -m torch.distributed.run \
   --nproc_per_node="${NUM_GPUS}" \
@@ -180,5 +199,7 @@ python -m torch.distributed.run \
   --dataloader-num-workers "${DATALOADER_NUM_WORKERS}" \
   --wandb-project "${WANDB_PROJECT}" \
   "${RESUME_ARGS[@]}" \
-  "${EULER_ARGS[@]}" \
-  --use-wandb
+  "${ROOT_ARGS[@]}" \
+  "${LEGACY_ARGS[@]}" \
+  --use-wandb \
+  "$@"
