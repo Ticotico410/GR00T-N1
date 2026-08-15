@@ -64,6 +64,8 @@ if __name__ == "__main__":
         f"action_mode={setup.action_mode!r}, "
         f"use_relative_euler={setup.use_relative_euler}, "
         f"use_state_euler={setup.use_state_euler}, "
+        f"use_rot6d={setup.use_rot6d}, "
+        f"use_relative_rot6d={setup.use_relative_rot6d}, "
         f"state.robot_root={setup.include_state_robot_root}"
     )
 
@@ -125,6 +127,8 @@ if __name__ == "__main__":
     config.model.use_relative_action = True
     config.model.use_relative_euler = ft_config.use_relative_euler
     config.model.use_state_euler = ft_config.use_state_euler
+    config.model.use_rot6d = ft_config.use_rot6d
+    config.model.use_relative_rot6d = ft_config.use_relative_rot6d
 
     # Prefer HF cache under CACHE_ROOT (set by train.sh); avoid silent /root/.cache hits.
     # model_name must be a local dir when offline — HF repo IDs still probe the Hub

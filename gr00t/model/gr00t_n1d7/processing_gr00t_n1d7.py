@@ -173,6 +173,8 @@ class Gr00tN1d7Processor(BaseProcessor):
         use_relative_action: bool = False,
         use_relative_euler: bool = False,
         use_state_euler: bool = False,
+        use_rot6d: bool = False,
+        use_relative_rot6d: bool = True,
         embodiment_id_mapping: dict[str, int] | None = None,
         transformers_loading_kwargs: dict = {"trust_remote_code": True},
         # State augmentation
@@ -195,6 +197,8 @@ class Gr00tN1d7Processor(BaseProcessor):
             use_relative_action=use_relative_action,
             use_relative_euler=use_relative_euler,
             use_state_euler=use_state_euler,
+            use_rot6d=use_rot6d,
+            use_relative_rot6d=use_relative_rot6d,
         )
 
         # Save state action processor settings
@@ -205,6 +209,8 @@ class Gr00tN1d7Processor(BaseProcessor):
         self.use_relative_action = use_relative_action
         self.use_relative_euler = use_relative_euler
         self.use_state_euler = use_state_euler
+        self.use_rot6d = use_rot6d
+        self.use_relative_rot6d = use_relative_rot6d
         self.extra_augmentation_config = extra_augmentation_config
 
         # State augmentation settings
@@ -731,6 +737,8 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "use_relative_action": self.use_relative_action,
                 "use_relative_euler": self.use_relative_euler,
                 "use_state_euler": self.use_state_euler,
+                "use_rot6d": self.use_rot6d,
+                "use_relative_rot6d": self.use_relative_rot6d,
                 # State augmentation
                 "exclude_state": self.exclude_state,
                 "state_dropout_prob": self.state_dropout_prob,
@@ -806,6 +814,8 @@ class Gr00tN1d7Processor(BaseProcessor):
         processor_kwargs.setdefault("clip_outliers", True)
         processor_kwargs.setdefault("use_relative_euler", False)
         processor_kwargs.setdefault("use_state_euler", False)
+        processor_kwargs.setdefault("use_rot6d", False)
+        processor_kwargs.setdefault("use_relative_rot6d", True)
 
         # Directly override other processor kwargs
         if kwargs:
@@ -819,6 +829,8 @@ class Gr00tN1d7Processor(BaseProcessor):
                 "use_relative_action",
                 "use_relative_euler",
                 "use_state_euler",
+                "use_rot6d",
+                "use_relative_rot6d",
                 "exclude_state",
                 "state_dropout_prob",
                 "use_mean_std",

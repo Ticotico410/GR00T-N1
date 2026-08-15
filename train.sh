@@ -30,10 +30,10 @@ RESUME_FROM_CHECKPOINT="${RESUME_FROM_CHECKPOINT:-0}"
 
 # SMPL root training (see gr00t/configs/smpl_root_mode.py):
 #   original     — 82D hip quat absolute; state drops robot_root (default)
-#   rot6d        — 84D hip rot6d; --action-mode relative only
+#   rot6d        — 84D hip rot6d; --action-mode absolute|relative
 #   delta_euler  — 81D Δeuler vs state; fixed relative
 #   euler        — 81D hip euler; --action-mode absolute|relative
-# CLI: bash train.sh --root-process-mode rot6d --action-mode relative
+# CLI: bash train.sh --root-process-mode rot6d --action-mode absolute
 # Legacy env (when ROOT_PROCESS_MODE unset): USE_RELATIVE_EULER / USE_STATE_EULER
 ROOT_PROCESS_MODE="${ROOT_PROCESS_MODE:-}"
 USE_RELATIVE_EULER="${USE_RELATIVE_EULER:-0}"

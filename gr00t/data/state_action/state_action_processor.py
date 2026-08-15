@@ -229,50 +229,89 @@ class Root2Rot6d:
         return quaternions.reshape(*matrix.shape[:-2], 4)
 
     @classmethod
-    def to_relative(cls, action: np.ndarray, reference_state: np.ndarray, *, process_xyz: bool = False) -> np.ndarray:
-        """Convert absolute root (T, 7) to relative (T, 9)"""
+    def to_relative(
+        cls,
+        action: np.ndarray,
+        reference_state: np.ndarray | None = None,
+        *,
+        process_xyz: bool = False,
+        relative: bool = True,
+    ) -> np.ndarray:
+        """Convert absolute root (T, 7) to processed (T, 9).
+
+        ``relative=True`` (default): local Δxyz + rot6d of ``R_ref^T R_act``.
+        ``relative=False``: xyz zeros (unless process_xyz with a reference) +
+        absolute rot6d of ``R_act`` (uniJungle-style; reference optional).
+        """
         action = np.asarray(action)
-        reference_state = np.asarray(reference_state)
 
         if action.ndim != 2 or action.shape[-1] != cls.RAW_DIM:
             raise ValueError(
                 f"Expected Unitree action (T, {cls.RAW_DIM}), got {action.shape}"
             )
 
-        if reference_state.ndim != 1 or reference_state.shape[-1] != cls.RAW_DIM:
-            raise ValueError(
-                f"Expected reference state ({cls.RAW_DIM},), "
-                f"got {reference_state.shape}"
-            )
+        if not np.all(np.isfinite(action)):
+            raise ValueError("Unitree action contains NaN or Inf")
 
-        if not np.all(np.isfinite(action)) or not np.all(np.isfinite(reference_state)):
-            raise ValueError(
-                "Unitree action or reference state contains NaN or Inf"
-            )
-
-        reference_quaternion = cls._normalize_quaternion(reference_state[3:7])
-        reference_rotation = cls.quaternion_to_matrix(reference_quaternion)
         future_rotation = cls.quaternion_to_matrix(action[:, 3:7])
 
-        if process_xyz:
-            reference_position = reference_state[:3]
-            future_position = action[:, :3]
-            world_delta = future_position - reference_position
-            local_delta = np.einsum("ij,tj->ti", reference_rotation.T, world_delta)
+        if relative:
+            if reference_state is None:
+                raise ValueError("reference_state is required when relative=True")
+            reference_state = np.asarray(reference_state)
+            if reference_state.ndim != 1 or reference_state.shape[-1] != cls.RAW_DIM:
+                raise ValueError(
+                    f"Expected reference state ({cls.RAW_DIM},), "
+                    f"got {reference_state.shape}"
+                )
+            if not np.all(np.isfinite(reference_state)):
+                raise ValueError("Unitree reference state contains NaN or Inf")
+
+            reference_quaternion = cls._normalize_quaternion(reference_state[3:7])
+            reference_rotation = cls.quaternion_to_matrix(reference_quaternion)
+            if process_xyz:
+                reference_position = reference_state[:3]
+                future_position = action[:, :3]
+                world_delta = future_position - reference_position
+                local_delta = np.einsum("ij,tj->ti", reference_rotation.T, world_delta)
+            else:
+                local_delta = np.zeros((action.shape[0], 3), dtype=action.dtype)
+            out_rotation = np.einsum(
+                "ij,tjk->tik", reference_rotation.T, future_rotation
+            )
         else:
-            local_delta = np.zeros((action.shape[0], 3), dtype=action.dtype)
+            if process_xyz:
+                if reference_state is None:
+                    raise ValueError(
+                        "reference_state is required when process_xyz=True"
+                    )
+                reference_state = np.asarray(reference_state)
+                reference_quaternion = cls._normalize_quaternion(reference_state[3:7])
+                reference_rotation = cls.quaternion_to_matrix(reference_quaternion)
+                world_delta = action[:, :3] - reference_state[:3]
+                local_delta = np.einsum("ij,tj->ti", reference_rotation.T, world_delta)
+            else:
+                local_delta = np.zeros((action.shape[0], 3), dtype=action.dtype)
+            out_rotation = future_rotation
 
-        # Root orientation relative to the reference root orientation.
-        relative_rotation = np.einsum("ij,tjk->tik", reference_rotation.T, future_rotation)
-        relative_rotation_6d = cls.matrix_to_rotation_6d(relative_rotation)
-
-        return np.concatenate((local_delta, relative_rotation_6d), axis=-1)
+        rotation_6d = cls.matrix_to_rotation_6d(out_rotation)
+        return np.concatenate((local_delta, rotation_6d), axis=-1)
 
     @classmethod
-    def to_absolute(cls, action: np.ndarray, reference_state: np.ndarray, *, process_xyz: bool = False) -> np.ndarray:
-        """Convert relative root (T, 9) back to absolute (T, 7)"""
+    def to_absolute(
+        cls,
+        action: np.ndarray,
+        reference_state: np.ndarray | None = None,
+        *,
+        process_xyz: bool = False,
+        relative: bool = True,
+    ) -> np.ndarray:
+        """Convert processed root (T, 9) back to absolute (T, 7).
+
+        ``relative=True``: apply ``R_ref`` to recover world orientation (needs ref).
+        ``relative=False``: rot6d→quat directly; xyz from ref if given else zeros.
+        """
         action = np.asarray(action)
-        reference_state = np.asarray(reference_state)
 
         if action.ndim != 2 or action.shape[-1] != cls.PROCESSED_DIM:
             raise ValueError(
@@ -280,48 +319,98 @@ class Root2Rot6d:
                 f"(T, {cls.PROCESSED_DIM}), got {action.shape}"
             )
 
-        if reference_state.ndim != 1 or reference_state.shape[-1] != cls.RAW_DIM:
-            raise ValueError(
-                f"Expected reference state ({cls.RAW_DIM},), "
-                f"got {reference_state.shape}"
+        if not np.all(np.isfinite(action)):
+            raise ValueError("Processed Unitree action contains NaN or Inf")
+
+        processed_rotation = cls.rotation_6d_to_matrix(action[:, 3:9])
+
+        if relative:
+            if reference_state is None:
+                raise ValueError("reference_state is required when relative=True")
+            reference_state = np.asarray(reference_state)
+            if reference_state.ndim != 1 or reference_state.shape[-1] != cls.RAW_DIM:
+                raise ValueError(
+                    f"Expected reference state ({cls.RAW_DIM},), "
+                    f"got {reference_state.shape}"
+                )
+            if not np.all(np.isfinite(reference_state)):
+                raise ValueError("Unitree reference state contains NaN or Inf")
+
+            reference_position = reference_state[:3]
+            reference_quaternion = cls._normalize_quaternion(reference_state[3:7])
+            reference_rotation = cls.quaternion_to_matrix(reference_quaternion)
+
+            if process_xyz:
+                local_delta = action[:, :3]
+                world_delta = np.einsum("ij,tj->ti", reference_rotation, local_delta)
+                absolute_position = reference_position + world_delta
+            else:
+                absolute_position = np.repeat(
+                    reference_position[None, :], action.shape[0], axis=0
+                )
+
+            absolute_rotation = np.einsum(
+                "ij,tjk->tik", reference_rotation, processed_rotation
             )
-
-        if not np.all(np.isfinite(action)) or not np.all(np.isfinite(reference_state)):
-            raise ValueError(
-                "Processed Unitree action or reference state contains NaN or Inf"
+            absolute_quaternion = cls.matrix_to_quaternion(absolute_rotation)
+            sign = np.sum(
+                absolute_quaternion * reference_quaternion[None, :],
+                axis=-1,
+                keepdims=True,
             )
-
-        reference_position = reference_state[:3]
-        reference_quaternion = cls._normalize_quaternion(reference_state[3:7])
-        reference_rotation = cls.quaternion_to_matrix(reference_quaternion)
-        relative_rotation = cls.rotation_6d_to_matrix(action[:, 3:9])
-
-        if process_xyz:
-            local_delta = action[:, :3]
-            world_delta = np.einsum("ij,tj->ti", reference_rotation, local_delta)
-            absolute_position = reference_position + world_delta
+            absolute_quaternion = np.where(
+                sign < 0.0, -absolute_quaternion, absolute_quaternion
+            )
         else:
-            absolute_position = np.repeat(reference_position[None, :], action.shape[0], axis=0)
-
-        absolute_rotation = np.einsum("ij,tjk->tik", reference_rotation, relative_rotation)
-        absolute_quaternion = cls.matrix_to_quaternion(absolute_rotation)
-
-        # Select the quaternion sign closest to the reference quaternion.
-        sign = np.sum(absolute_quaternion * reference_quaternion[None, :], axis=-1, keepdims=True)
-        absolute_quaternion = np.where(sign < 0.0, -absolute_quaternion, absolute_quaternion)
+            absolute_quaternion = cls.matrix_to_quaternion(processed_rotation)
+            if reference_state is not None:
+                reference_state = np.asarray(reference_state)
+                if reference_state.ndim != 1 or reference_state.shape[-1] != cls.RAW_DIM:
+                    raise ValueError(
+                        f"Expected reference state ({cls.RAW_DIM},), "
+                        f"got {reference_state.shape}"
+                    )
+                reference_quaternion = cls._normalize_quaternion(reference_state[3:7])
+                sign = np.sum(
+                    absolute_quaternion * reference_quaternion[None, :],
+                    axis=-1,
+                    keepdims=True,
+                )
+                absolute_quaternion = np.where(
+                    sign < 0.0, -absolute_quaternion, absolute_quaternion
+                )
+                if process_xyz:
+                    reference_rotation = cls.quaternion_to_matrix(reference_quaternion)
+                    world_delta = np.einsum(
+                        "ij,tj->ti", reference_rotation, action[:, :3]
+                    )
+                    absolute_position = reference_state[:3] + world_delta
+                else:
+                    absolute_position = np.repeat(
+                        reference_state[:3][None, :], action.shape[0], axis=0
+                    )
+            else:
+                absolute_position = np.zeros((action.shape[0], 3), dtype=action.dtype)
 
         return np.concatenate((absolute_position, absolute_quaternion), axis=-1)
 
     @classmethod
-    def build_normalization_params(cls, raw_params: dict[str, np.ndarray], *, process_xyz: bool = False) -> dict[str, np.ndarray]:
-        """Build 9D relative-root normalization params from absolute 7D stats"""
+    def build_normalization_params(
+        cls, raw_params: dict[str, np.ndarray], *, process_xyz: bool = False
+    ) -> dict[str, np.ndarray]:
+        """Build 9D relative-root normalization params from absolute 7D stats.
+
+        Used for WBC ``robot_root`` (synthetic hip bounds). SMPL ``frame`` prefers
+        :meth:`build_frame_rot6d_normalization_params` instead.
+        """
         raw_min = np.asarray(raw_params["min"])
         raw_max = np.asarray(raw_params["max"])
         raw_mean = np.asarray(raw_params["mean"])
         raw_std = np.asarray(raw_params["std"])
         if raw_min.shape[0] != cls.RAW_DIM:
             raise ValueError(
-                f"Unitree root conversion expects {cls.RAW_DIM}D action statistics, got {raw_min.shape[0]}"
+                f"Unitree root conversion expects {cls.RAW_DIM}D action statistics, "
+                f"got {raw_min.shape[0]}"
             )
 
         if process_xyz:
@@ -359,6 +448,66 @@ class Root2Rot6d:
             "mean": processed_mean,
             "std": processed_std,
         }
+
+    @classmethod
+    def build_frame_rot6d_normalization_params(
+        cls,
+        frame_params: dict[str, np.ndarray],
+        *,
+        relative: bool = True,
+        num_samples: int = 4096,
+        seed: int = 0,
+    ) -> dict[str, np.ndarray]:
+        """Rewrite 82D frame stats → 84D with hip rot6d stats from quat distribution.
+
+        Joints ``[:72]`` and wrist ``[76:82]`` keep the original 82D statistics.
+        Hip ``[72:78]`` is re-estimated by sampling quaternions from the 82D
+        mean/std (same empirical spirit as joints), converting to absolute or
+        relative rot6d, then taking mean/std/min/max — not synthetic ±1/std=1.
+        """
+        dtype = np.asarray(frame_params["mean"]).dtype
+        mean_q_raw = np.asarray(frame_params["mean"][72:76], dtype=np.float64)
+        if float(np.linalg.norm(mean_q_raw)) < cls.EPS:
+            mean_q_raw = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+        mean_q = cls._normalize_quaternion(mean_q_raw)
+        std_q = np.maximum(
+            np.asarray(frame_params["std"][72:76], dtype=np.float64), 1e-4
+        )
+        rng = np.random.default_rng(seed)
+        samples_q = mean_q + std_q * rng.standard_normal((num_samples, 4))
+        sample_norms = np.linalg.norm(samples_q, axis=-1, keepdims=True)
+        bad = sample_norms[..., 0] < cls.EPS
+        if np.any(bad):
+            samples_q[bad] = mean_q
+            sample_norms = np.linalg.norm(samples_q, axis=-1, keepdims=True)
+        samples_q = samples_q / np.maximum(sample_norms, cls.EPS)
+
+        if relative:
+            reference_rotation = cls.quaternion_to_matrix(mean_q)
+            future_rotation = cls.quaternion_to_matrix(samples_q)
+            out_rotation = np.einsum(
+                "ij,njk->nik", reference_rotation.T, future_rotation
+            )
+        else:
+            out_rotation = cls.quaternion_to_matrix(samples_q)
+
+        rot6d = cls.matrix_to_rotation_6d(out_rotation)
+        hip_mean = rot6d.mean(axis=0).astype(dtype)
+        hip_std = np.maximum(rot6d.std(axis=0), 1e-3).astype(dtype)
+        hip_min = rot6d.min(axis=0).astype(dtype)
+        hip_max = rot6d.max(axis=0).astype(dtype)
+
+        rewritten: dict[str, np.ndarray] = {}
+        for key, hip in (
+            ("min", hip_min),
+            ("max", hip_max),
+            ("mean", hip_mean),
+            ("std", hip_std),
+        ):
+            src = np.asarray(frame_params[key])
+            rewritten[key] = np.concatenate((src[:72], hip, src[76:82])).astype(dtype)
+        rewritten["dim"] = np.array(cls.FRAME_PROCESSED_DIM)
+        return rewritten
 
 
 class Root2Euler:
@@ -653,9 +802,15 @@ class StateActionProcessor:
         use_relative_action: bool = False,
         use_relative_euler: bool = False,
         use_state_euler: bool = False,
+        use_rot6d: bool = False,
+        use_relative_rot6d: bool = True,
     ):
         if use_state_euler and not use_relative_euler:
             raise ValueError("use_state_euler=True requires use_relative_euler=True")
+        if use_relative_rot6d and not use_rot6d:
+            # Legacy callers may only set use_relative_rot6d via has_root rewrite;
+            # keep permissive: relative_rot6d alone does not force use_rot6d.
+            pass
         self.modality_configs = parse_modality_configs(modality_configs)
         self.statistics: dict[str, dict[str, dict[str, dict[str, list[float]]]]] = {}
         self.use_percentiles = use_percentiles
@@ -664,6 +819,8 @@ class StateActionProcessor:
         self.use_relative_action = use_relative_action
         self.use_relative_euler = use_relative_euler
         self.use_state_euler = use_state_euler
+        self.use_rot6d = use_rot6d
+        self.use_relative_rot6d = use_relative_rot6d
         self.norm_params: dict[str, dict[str, dict[str, dict[str, np.ndarray]]]] = {}
         if statistics is not None:
             self.set_statistics(statistics)
@@ -873,36 +1030,35 @@ class StateActionProcessor:
                                 Root2Rot6d.PROCESSED_DIM,
                             )
 
-                # SMPL frame: 82->84 when state provides robot_root (rot6d).
+                # SMPL frame: 82->84 for rot6d (explicit flag, or legacy: state has robot_root).
+                enable_frame_rot6d = self.use_rot6d or (
+                    has_root and not self.use_relative_euler
+                )
+                if enable_frame_rot6d and not self.use_rot6d:
+                    # Legacy checkpoint: rot6d inferred from state.robot_root.
+                    self.use_rot6d = True
+                    self.use_relative_rot6d = True
                 for key in modality_keys:
                     params = self.norm_params[embodiment_tag]["action"].get(key)
                     if (
                         key != "frame"
-                        or not has_root
+                        or not enable_frame_rot6d
                         or params is None
                         or int(params["dim"].item()) != Root2Rot6d.FRAME_RAW_DIM
                     ):
                         continue
-                    root_norm = Root2Rot6d.build_normalization_params(
-                        {
-                            "min": np.zeros(Root2Rot6d.RAW_DIM, dtype=params["min"].dtype),
-                            "max": np.ones(Root2Rot6d.RAW_DIM, dtype=params["max"].dtype),
-                            "mean": np.zeros(Root2Rot6d.RAW_DIM, dtype=params["mean"].dtype),
-                            "std": np.ones(Root2Rot6d.RAW_DIM, dtype=params["std"].dtype),
-                        }
+                    rewritten = Root2Rot6d.build_frame_rot6d_normalization_params(
+                        params, relative=self.use_relative_rot6d
                     )
-                    rewritten = {
-                        k: np.concatenate((params[k][:72], root_norm[k][3:9], params[k][76:82]))
-                        for k in ("min", "max", "mean", "std")
-                    }
-                    rewritten["dim"] = np.array(Root2Rot6d.FRAME_PROCESSED_DIM)
                     self.norm_params[embodiment_tag]["action"][key] = rewritten
                     logger.info(
-                        "Enabled Unitree relative root 6D processing for %s/%s: %dD -> %dD",
+                        "Enabled Unitree frame rot6d for %s/%s: %dD -> %dD "
+                        "(relative=%s; hip stats from 82D quat distribution)",
                         embodiment_tag,
                         key,
                         Root2Rot6d.FRAME_RAW_DIM,
                         Root2Rot6d.FRAME_PROCESSED_DIM,
+                        self.use_relative_rot6d,
                     )
 
     def _root_action_is_relative(self, embodiment_tag: str) -> bool:
@@ -923,7 +1079,7 @@ class StateActionProcessor:
         return self.use_state_euler or self._root_action_is_relative(embodiment_tag)
 
     def _uses_unitree_root_relative_6d(self, embodiment_tag: str, key: str) -> bool:
-        """Same gate as the verified WBC path; ``frame`` uses processed 84D dim."""
+        """WBC/SMPL rot6d gate; ``frame`` uses processed 84D (absolute or relative)."""
         if self.use_relative_euler:
             return False
         if not Root2Rot6d.is_action_key(key):
@@ -935,7 +1091,7 @@ class StateActionProcessor:
         if key == "robot_root":
             return self.use_relative_action and dim == Root2Rot6d.PROCESSED_DIM
         if key == "frame":
-            return dim == Root2Rot6d.FRAME_PROCESSED_DIM
+            return self.use_rot6d and dim == Root2Rot6d.FRAME_PROCESSED_DIM
         return False
 
     def _uses_unitree_root_relative_euler(self, embodiment_tag: str, key: str) -> bool:
@@ -1014,16 +1170,23 @@ class StateActionProcessor:
         state: dict[str, np.ndarray] | None,
         action_key: str,
     ) -> np.ndarray:
-        """Decode relative Unitree root; Euler path when ``use_relative_euler``."""
+        """Decode Unitree root; Euler path when ``use_relative_euler``."""
         reference_array = self._get_unitree_reference_array(state, action_key)
-        if reference_array is None:
+        process_xyz = action_key == "robot_root"
+        use_euler = self.use_relative_euler
+        absolute_rot6d = (
+            self.use_rot6d
+            and not self.use_relative_rot6d
+            and not use_euler
+            and action_key == "frame"
+        )
+
+        if reference_array is None and not absolute_rot6d:
             raise ValueError(
                 f"State containing one of {Root2Rot6d.STATE_KEY_CANDIDATES[action_key]} "
                 f"is required to decode relative Unitree root action '{action_key}'"
             )
 
-        process_xyz = action_key == "robot_root"
-        use_euler = self.use_relative_euler
         embodiment_tag = None
         for tag, cfgs in self.modality_configs.items():
             action_cfg = cfgs.get("action")
@@ -1039,9 +1202,10 @@ class StateActionProcessor:
                 return Root2Euler.root_euler_to_quat_root(reference)
             return reference
 
-        def _one(sample_action: np.ndarray, reference: np.ndarray) -> np.ndarray:
-            reference = _coerce_reference(reference)
+        def _one(sample_action: np.ndarray, reference: np.ndarray | None) -> np.ndarray:
             if use_euler:
+                assert reference is not None
+                reference = _coerce_reference(reference)
                 if action_key == "frame":
                     absolute_root = Root2Euler.to_absolute(
                         Root2Euler.pack_frame_root(sample_action, relative=True),
@@ -1061,14 +1225,21 @@ class StateActionProcessor:
                     Root2Rot6d.pack_frame_root(sample_action, relative=True),
                     reference,
                     process_xyz=process_xyz,
+                    relative=self.use_relative_rot6d,
                 )
                 return Root2Rot6d.splice_frame_root(sample_action, absolute_root)
+            assert reference is not None
             return Root2Rot6d.to_absolute(
-                sample_action, reference, process_xyz=process_xyz
+                sample_action,
+                reference,
+                process_xyz=process_xyz,
+                relative=True,
             )
 
         action = np.asarray(action)
         if action.ndim == 2:
+            if reference_array is None:
+                return _one(action, None)
             if reference_array.ndim == 1:
                 reference = reference_array
             elif reference_array.ndim == 2:
@@ -1085,6 +1256,8 @@ class StateActionProcessor:
             raise ValueError(f"Expected Unitree action (T, D) or (B, T, D), got {action.shape}")
 
         batch_size = action.shape[0]
+        if reference_array is None:
+            return np.stack([_one(action[i], None) for i in range(batch_size)], axis=0)
         if reference_array.ndim == 1:
             references = np.repeat(reference_array[None, :], batch_size, axis=0)
         elif reference_array.ndim == 2:
@@ -1228,17 +1401,30 @@ class StateActionProcessor:
                     raise KeyError(
                         f"Joint group '{key}' not found in action dict for embodiment '{embodiment_tag}'"
                     )
-                reference = self._get_unitree_reference_for_training(state, key, action[key])
                 if key == "frame":
-                    relative_root = Root2Rot6d.to_relative(
-                        Root2Rot6d.pack_frame_root(action[key]), reference
-                    )
+                    if self.use_relative_rot6d:
+                        reference = self._get_unitree_reference_for_training(
+                            state, key, action[key]
+                        )
+                        processed_root = Root2Rot6d.to_relative(
+                            Root2Rot6d.pack_frame_root(action[key]),
+                            reference,
+                            relative=True,
+                        )
+                    else:
+                        processed_root = Root2Rot6d.to_relative(
+                            Root2Rot6d.pack_frame_root(action[key]),
+                            relative=False,
+                        )
                     action[key] = Root2Rot6d.splice_frame_root(
-                        action[key], relative_root, relative=True
+                        action[key], processed_root, relative=True
                     )
                 else:
+                    reference = self._get_unitree_reference_for_training(
+                        state, key, action[key]
+                    )
                     action[key] = Root2Rot6d.to_relative(
-                        action[key], reference, process_xyz=True
+                        action[key], reference, process_xyz=True, relative=True
                     )
                 special_keys.add(key)
             elif self._uses_unitree_root_relative_euler(embodiment_tag, key):
@@ -1505,5 +1691,7 @@ class StateActionProcessor:
             f"apply_sincos_state_encoding={self.apply_sincos_state_encoding}, "
             f"use_relative_action={self.use_relative_action}, "
             f"use_relative_euler={self.use_relative_euler}, "
-            f"use_state_euler={self.use_state_euler})"
+            f"use_state_euler={self.use_state_euler}, "
+            f"use_rot6d={self.use_rot6d}, "
+            f"use_relative_rot6d={self.use_relative_rot6d})"
         )

@@ -31,8 +31,9 @@ State (48 dims when robot_root present; 41 dims in original mode):
 
 Training flags (see gr00t/configs/smpl_root_mode.py):
   - ``--root-process-mode original|rot6d|delta_euler|euler``
-  - ``--action-mode absolute|relative`` (euler only)
-  - Checkpoint stores use_relative_euler / use_state_euler + full modality_configs.
+  - ``--action-mode absolute|relative`` (rot6d / euler; delta_euler fixed relative)
+  - Checkpoint stores use_relative_euler / use_state_euler / use_rot6d /
+    use_relative_rot6d + full modality_configs.
 
 Hand actions use ABSOLUTE. frame ActionConfig stays ABSOLUTE; do not use rep=RELATIVE
 for root (use root-process-mode / action-mode instead).

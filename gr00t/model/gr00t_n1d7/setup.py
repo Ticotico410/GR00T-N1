@@ -192,6 +192,8 @@ class Gr00tN1d7Pipeline(ModelPipeline):
                 use_relative_action=self.model_config.use_relative_action,
                 use_relative_euler=self.model_config.use_relative_euler,
                 use_state_euler=self.model_config.use_state_euler,
+                use_rot6d=self.model_config.use_rot6d,
+                use_relative_rot6d=self.model_config.use_relative_rot6d,
                 # State augmentation overrides
                 exclude_state=self.model_config.exclude_state,
                 state_dropout_prob=self.model_config.state_dropout_prob,
@@ -222,6 +224,8 @@ class Gr00tN1d7Pipeline(ModelPipeline):
                 use_relative_action=self.model_config.use_relative_action,
                 use_relative_euler=self.model_config.use_relative_euler,
                 use_state_euler=self.model_config.use_state_euler,
+                use_rot6d=self.model_config.use_rot6d,
+                use_relative_rot6d=self.model_config.use_relative_rot6d,
                 # State augmentation
                 exclude_state=self.model_config.exclude_state,
                 state_dropout_prob=self.model_config.state_dropout_prob,

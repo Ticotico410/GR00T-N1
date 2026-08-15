@@ -31,6 +31,7 @@ from gr00t.eval.action_ema import (
     SMPL_HIP_ROT6D_SLICE,
     apply_root_xyz_ema,
     apply_smpl_frame_chunk_ema,
+    apply_smpl_frame_chunk_rot6d_slerp,
     ema_applies_to,
 )
 from gr00t.policy import BasePolicy
@@ -57,14 +58,15 @@ Original SMPL open loop (decoded 82D SMPL + hip quat; no EMA/euler/rot6d):
 WBC relative 9D root open loop (local xyz + rot6d, process_xyz=True):
     python gr00t/eval/open_loop_eval.py --model-path ... --root-process-mode trans9d
 
-SMPL relative rot6D open loop (frame[72:76] → 6D, process_xyz=False):
+SMPL relative or absolute rot6D open loop (frame hip → 6D):
     python gr00t/eval/open_loop_eval.py --model-path ... --root-process-mode rot6d
+    python gr00t/eval/open_loop_eval.py ... --root-process-mode rot6d --rot6d-slerp-alpha 0.8
 
 SMPL delta-Euler open loop (pred 81D Δeuler vs GT Δeuler, training target space):
     python gr00t/eval/open_loop_eval.py --model-path ... --root-process-mode delta_euler
     python gr00t/eval/open_loop_eval.py ... --root-process-mode delta_euler --ema-alpha 0.25
 
-Plots are written under ``{model-path}/open_loop_eval/{[ema_]mode}/``:
+Plots are written under ``{model-path}/open_loop_eval/{[ema_|slerp_]mode}/``:
     original: smpl_{traj_id}.jpeg (82D) and quat_{traj_id}.jpeg ([72:76])
     delta_euler: euler_{traj_id}.jpeg (predicted Δeuler, to_absolute=False)
                  quat_{traj_id}.jpeg (Root2Euler.to_absolute → hip quat)
@@ -74,7 +76,13 @@ Plots are written under ``{model-path}/open_loop_eval/{[ema_]mode}/``:
 
 ``--ema-alpha`` applies per ``--root-process-mode`` (via ``gr00t.eval.action_ema``):
     trans9d: EMA on robot_root local xyz (may span inference chunks)
-    delta_euler / rot6d: EMA on hip Δeuler or rot6d within each chunk only
+    delta_euler / rot6d: column-wise EMA on hip Δeuler or rot6d within each chunk
+
+``--rot6d-slerp-alpha`` (rot6d only): same polarity as uniJungle ``smoother`` rot alpha
+(``out ≈ α·prev + (1-α)·cur`` in SO(3); larger → smoother). Default there is 0.8.
+Spans inference chunks like ``--ema-alpha`` on trans9d xyz; in relative mode the filter
+state is re-expressed into each chunk's root reference so boundary jumps are damped.
+Prefer this over ``--ema-alpha`` for rot6d.
 
 Relative euler/rot6d checkpoints have no original eval option. Pred stays in processed
 space; quat plots are a forward decode of that same pred, not decode-then-recompute.
@@ -394,7 +402,28 @@ def _euler_delta_to_abs_quat(
     return out[0] if squeeze else out
 
 
-def _rot6d_to_abs_quat(rot6d: np.ndarray, reference_root: np.ndarray) -> np.ndarray:
+def _smpl_frame_to_absolute_rot6d(frame: np.ndarray) -> np.ndarray:
+    """Absolute hip rot6d from raw 82D SMPL frame (no state reference)."""
+    frame = np.asarray(frame)
+    if frame.ndim == 1:
+        frame = frame[None, ...]
+    if int(frame.shape[-1]) != Root2Rot6d.FRAME_RAW_DIM:
+        raise ValueError(
+            f"GT absolute rot6d expects absolute SMPL frame ({Root2Rot6d.FRAME_RAW_DIM}D), "
+            f"got {frame.shape}"
+        )
+    processed = Root2Rot6d.to_relative(
+        Root2Rot6d.pack_frame_root(frame), relative=False
+    )
+    return processed[:, 3:9]
+
+
+def _rot6d_to_abs_quat(
+    rot6d: np.ndarray,
+    reference_root: np.ndarray | None = None,
+    *,
+    relative: bool = True,
+) -> np.ndarray:
     """Hip rot6d (T, 6) → hip quat wxyz via Root2Rot6d.to_absolute."""
     rot6d = np.asarray(rot6d, dtype=np.float32)
     squeeze = False
@@ -405,10 +434,16 @@ def _rot6d_to_abs_quat(rot6d: np.ndarray, reference_root: np.ndarray) -> np.ndar
         [np.zeros((rot6d.shape[0], 3), dtype=np.float32), rot6d],
         axis=-1,
     )
+    ref = (
+        None
+        if reference_root is None
+        else np.asarray(reference_root, dtype=np.float32).reshape(-1)
+    )
     abs_root = Root2Rot6d.to_absolute(
         processed,
-        np.asarray(reference_root, dtype=np.float32).reshape(-1),
+        ref,
         process_xyz=False,
+        relative=relative,
     )
     out = abs_root[:, 3:7]
     return out[0] if squeeze else out
@@ -416,7 +451,7 @@ def _rot6d_to_abs_quat(rot6d: np.ndarray, reference_root: np.ndarray) -> np.ndar
 
 def _reconstruct_abs_quat_from_chunks(
     processed_rot: np.ndarray,
-    chunk_refs: list[tuple[int, np.ndarray]],
+    chunk_refs: list[tuple[int, np.ndarray | None]],
     convert_fn,
 ) -> np.ndarray:
     """Apply per-chunk to_absolute using the same reference as inference."""
@@ -457,8 +492,9 @@ def _resolve_open_loop_plot_dir(
     root_process_mode: str,
     save_plot_path: str | None,
     ema_alpha: float | None = None,
+    rot6d_slerp_alpha: float | None = None,
 ) -> Path:
-    """``{checkpoint}/open_loop_eval/{mode}``, or ``.../ema_{mode}`` when EMA is set.
+    """``{checkpoint}/open_loop_eval/{mode}``, or ``.../ema_*`` / ``.../slerp_*`` when set.
     ``--save-plot-path`` overrides the directory.
     """
     if save_plot_path:
@@ -466,7 +502,9 @@ def _resolve_open_loop_plot_dir(
         return path.parent if path.suffix.lower() in IMAGE_SUFFIXES else path
 
     subdir = root_process_mode
-    if ema_alpha is not None and root_process_mode != "original":
+    if rot6d_slerp_alpha is not None and root_process_mode == "rot6d":
+        subdir = f"slerp_{root_process_mode}"
+    elif ema_alpha is not None and root_process_mode != "original":
         subdir = f"ema_{root_process_mode}"
 
     if model_path:
@@ -477,13 +515,30 @@ def _resolve_open_loop_plot_dir(
     return Path("/tmp/open_loop_eval") / subdir
 
 
-def _checkpoint_root_flags(policy: BasePolicy) -> tuple[bool, bool, bool]:
-    """Return (use_relative_euler, use_state_euler, use_relative_action) from the processor."""
+def _checkpoint_root_flags(policy: BasePolicy) -> tuple[bool, bool, bool, bool, bool]:
+    """Return use_relative_euler, use_state_euler, use_relative_action, use_rot6d, use_relative_rot6d."""
     processor = getattr(policy, "processor", None)
+    sap = getattr(processor, "state_action_processor", None) if processor is not None else None
+    src = sap if sap is not None else processor
+    use_rot6d = bool(getattr(src, "use_rot6d", False))
+    use_relative_rot6d = bool(getattr(src, "use_relative_rot6d", True))
+    # Legacy: rot6d inferred when frame gate is active without explicit flag.
+    if not use_rot6d and src is not None:
+        uses = getattr(src, "_uses_unitree_root_relative_6d", None)
+        if callable(uses):
+            try:
+                tag = next(iter(getattr(src, "modality_configs", {}) or {}), None)
+                if tag and uses(tag, "frame"):
+                    use_rot6d = True
+                    use_relative_rot6d = True
+            except Exception:
+                pass
     return (
-        bool(getattr(processor, "use_relative_euler", False)),
-        bool(getattr(processor, "use_state_euler", False)),
-        bool(getattr(processor, "use_relative_action", False)),
+        bool(getattr(src, "use_relative_euler", False)),
+        bool(getattr(src, "use_state_euler", False)),
+        bool(getattr(src, "use_relative_action", False)),
+        use_rot6d,
+        use_relative_rot6d,
     )
 
 
@@ -495,9 +550,13 @@ def _checkpoint_effective_root_mode(policy: BasePolicy) -> str:
     Absolute-quat SFT drops ``robot_root`` from state, so frame stays 82D quat even
     with ``use_relative_action=True``.
     """
-    use_rel_euler, use_state_euler, use_rel_action = _checkpoint_root_flags(policy)
+    use_rel_euler, use_state_euler, use_rel_action, use_rot6d, _ = _checkpoint_root_flags(
+        policy
+    )
     if use_rel_euler:
         return "delta_euler" if use_state_euler else "euler"
+    if use_rot6d:
+        return "rot6d"
 
     modality = policy.get_modality_config()
     state_cfg = modality.get("state")
@@ -507,10 +566,12 @@ def _checkpoint_effective_root_mode(policy: BasePolicy) -> str:
     has_root_ref = bool(state_keys.intersection({"robot_root", "robot_root_current"}))
 
     processor = getattr(policy, "processor", None)
+    sap = getattr(processor, "state_action_processor", None) if processor is not None else None
+    src = sap if sap is not None else processor
     embodiment = getattr(policy, "embodiment_tag", None)
-    if processor is not None and embodiment is not None:
+    if src is not None and embodiment is not None:
         tag = embodiment.value if hasattr(embodiment, "value") else str(embodiment)
-        uses_frame_rot6d = getattr(processor, "_uses_unitree_root_relative_6d", None)
+        uses_frame_rot6d = getattr(src, "_uses_unitree_root_relative_6d", None)
         if callable(uses_frame_rot6d) and SMPL_FRAME_KEY in action_keys:
             if uses_frame_rot6d(tag, SMPL_FRAME_KEY):
                 return "rot6d"
@@ -529,14 +590,23 @@ def _checkpoint_effective_root_mode(policy: BasePolicy) -> str:
 
 def _assert_mode_matches_checkpoint(policy: BasePolicy, root_process_mode: str) -> None:
     """Match eval mode to how the ckpt actually represents root (not raw flags alone)."""
-    use_rel_euler, use_state_euler, use_rel_action = _checkpoint_root_flags(policy)
-    effective = _checkpoint_effective_root_mode(policy)
-    logging.info(
-        "Checkpoint processor flags: use_relative_euler=%s use_state_euler=%s "
-        "use_relative_action=%s | effective_root_mode=%s",
+    (
         use_rel_euler,
         use_state_euler,
         use_rel_action,
+        use_rot6d,
+        use_relative_rot6d,
+    ) = _checkpoint_root_flags(policy)
+    effective = _checkpoint_effective_root_mode(policy)
+    logging.info(
+        "Checkpoint processor flags: use_relative_euler=%s use_state_euler=%s "
+        "use_relative_action=%s use_rot6d=%s use_relative_rot6d=%s | "
+        "effective_root_mode=%s",
+        use_rel_euler,
+        use_state_euler,
+        use_rel_action,
+        use_rot6d,
+        use_relative_rot6d,
         effective,
     )
 
@@ -563,8 +633,8 @@ def _assert_mode_matches_checkpoint(policy: BasePolicy, root_process_mode: str) 
     if effective == "rot6d":
         if root_process_mode != "rot6d":
             raise ValueError(
-                "This checkpoint trains SMPL frame hip as relative rot6d "
-                "(state has robot_root → 82D→84D Root2Rot6d). "
+                "This checkpoint trains SMPL frame hip as rot6d (82D→84D Root2Rot6d; "
+                f"relative={use_relative_rot6d}). "
                 "Use --root-process-mode rot6d (get_action to_absolute=False)."
             )
         return
@@ -627,6 +697,7 @@ def evaluate_single_trajectory(
     plot_dir: str | Path | None = None,
     root_process_mode: str = "original",
     ema_alpha: float | None = None,
+    rot6d_slerp_alpha: float | None = None,
 ):
     # Ensure steps doesn't exceed trajectory length
     traj = loader[traj_id]
@@ -669,12 +740,13 @@ def evaluate_single_trajectory(
                 f"--root-process-mode rot6d requires action key '{SMPL_FRAME_KEY}' "
                 f"in modality config, got {loader.modality_configs['action'].modality_keys}"
             )
-        if ROOT_ACTION_KEY not in loader.modality_configs["state"].modality_keys:
+        _, _, _, _, use_relative_rot6d = _checkpoint_root_flags(policy)
+        has_state_root = ROOT_ACTION_KEY in loader.modality_configs["state"].modality_keys
+        if use_relative_rot6d and not has_state_root:
             raise ValueError(
-                f"--root-process-mode rot6d requires state key '{ROOT_ACTION_KEY}' "
+                f"--root-process-mode rot6d (relative) requires state key '{ROOT_ACTION_KEY}' "
                 f"(reference for hip quat). Got state keys "
-                f"{loader.modality_configs['state'].modality_keys}. "
-                "Use a SMPL-rel checkpoint / modality that includes robot_root."
+                f"{loader.modality_configs['state'].modality_keys}."
             )
         if modality_keys is not None and modality_keys != [SMPL_FRAME_KEY]:
             logging.warning(
@@ -684,8 +756,8 @@ def evaluate_single_trajectory(
             )
         action_keys = [SMPL_FRAME_KEY]
         logging.info(
-            "Root eval space=rot6d: pred unnormalized hip rot6d (84D [72:78]) vs "
-            "GT Root2Rot6d.to_relative (process_xyz=False)"
+            "Root eval space=rot6d: pred unnormalized hip rot6d (84D [72:78]) vs GT %s",
+            "Root2Rot6d.to_relative" if use_relative_rot6d else "absolute rot6d (no ref)",
         )
         if not isinstance(policy, Gr00tPolicy):
             raise TypeError(
@@ -759,23 +831,31 @@ def evaluate_single_trajectory(
     pred_trans9d_segments: list[np.ndarray] = []
     gt_trans9d_segments: list[np.ndarray] = []
     pred_abs_frame_segments: list[np.ndarray] = []
-    root_chunk_refs: list[tuple[int, np.ndarray]] = []
+    root_chunk_refs: list[tuple[int, np.ndarray | None]] = []
 
     gt_root_abs = None
     state_root_abs = None
     gt_frame_abs = None
+    use_relative_rot6d = True
+    if root_process_mode == "rot6d":
+        _, _, _, _, use_relative_rot6d = _checkpoint_root_flags(policy)
     if root_process_mode == "trans9d":
         gt_root_abs = _stack_traj_column(traj, f"action.{ROOT_ACTION_KEY}")
         state_root_abs = _stack_traj_column(traj, f"state.{ROOT_ACTION_KEY}")
     elif root_process_mode in ("rot6d", "delta_euler", "euler"):
         gt_frame_abs = _stack_traj_column(traj, f"action.{SMPL_FRAME_KEY}")
-        state_root_abs = _stack_traj_column(traj, f"state.{ROOT_ACTION_KEY}")
+        if root_process_mode != "rot6d" or use_relative_rot6d:
+            state_root_abs = _stack_traj_column(traj, f"state.{ROOT_ACTION_KEY}")
 
     modality_configs = deepcopy(loader.modality_configs)
     modality_configs.pop("action")
     
-    # EMA state (xyz may span chunks; euler Δ resets every inference chunk)
+    # EMA state (xyz / rot6d-slerp may span chunks; column EMA resets every chunk).
+    # Relative rot6d also carries the reference used to express ema_rot6d so the
+    # filter can be rewritten into the next chunk's frame (inference-boundary jump).
     ema_xyz = None
+    ema_rot6d_slerp = None
+    ema_rot6d_slerp_ref = None
 
     for step_count in range(0, actual_steps, action_horizon):
         data_point = extract_step_data(traj, step_count, modality_configs, embodiment_tag)
@@ -822,6 +902,7 @@ def evaluate_single_trajectory(
             elif (
                 root_process_mode in ("delta_euler", "rot6d")
                 and SMPL_FRAME_KEY in action_keys
+                and rot6d_slerp_alpha is None
             ):
                 frame_key = f"action.{SMPL_FRAME_KEY}"
                 action_chunk[frame_key] = apply_smpl_frame_chunk_ema(
@@ -830,6 +911,32 @@ def evaluate_single_trajectory(
                     root_process_mode,
                     horizon=horizon,
                 )
+
+        if (
+            rot6d_slerp_alpha is not None
+            and root_process_mode == "rot6d"
+            and SMPL_FRAME_KEY in action_keys
+        ):
+            frame_key = f"action.{SMPL_FRAME_KEY}"
+            chunk_ref = None
+            if use_relative_rot6d:
+                assert state_root_abs is not None
+                chunk_ref = state_root_abs[step_count]
+                if chunk_ref.ndim == 2:
+                    chunk_ref = chunk_ref[-1]
+                chunk_ref = np.asarray(chunk_ref, dtype=np.float32)
+            (
+                action_chunk[frame_key],
+                ema_rot6d_slerp,
+                ema_rot6d_slerp_ref,
+            ) = apply_smpl_frame_chunk_rot6d_slerp(
+                action_chunk[frame_key],
+                rot6d_slerp_alpha,
+                horizon=horizon,
+                ema_rot6d=ema_rot6d_slerp,
+                chunk_reference=chunk_ref,
+                ema_rot6d_reference=ema_rot6d_slerp_ref,
+            )
 
         if root_process_mode == "trans9d":
             assert gt_root_abs is not None and state_root_abs is not None
@@ -851,19 +958,26 @@ def evaluate_single_trajectory(
             )
             pred_trans9d_segments.append(pred_root)
         elif root_process_mode == "rot6d":
-            assert gt_frame_abs is not None and state_root_abs is not None
+            assert gt_frame_abs is not None
             pred_frame = np.asarray(action_chunk[f"action.{SMPL_FRAME_KEY}"])[:horizon]
             if pred_frame.ndim == 1:
                 pred_frame = pred_frame[None, :]
             gt_frame = gt_frame_abs[step_count : step_count + horizon]
-            reference = state_root_abs[step_count]
-            if reference.ndim == 2:
-                reference = reference[-1]
-            gt_trans9d_segments.append(
-                _smpl_frame_to_relative_rot6d(gt_frame, reference)
-            )
+            if use_relative_rot6d:
+                assert state_root_abs is not None
+                reference = state_root_abs[step_count]
+                if reference.ndim == 2:
+                    reference = reference[-1]
+                gt_trans9d_segments.append(
+                    _smpl_frame_to_relative_rot6d(gt_frame, reference)
+                )
+                root_chunk_refs.append(
+                    (horizon, np.asarray(reference, dtype=np.float32).copy())
+                )
+            else:
+                gt_trans9d_segments.append(_smpl_frame_to_absolute_rot6d(gt_frame))
+                root_chunk_refs.append((horizon, None))
             pred_trans9d_segments.append(_pred_rot6d_from_processed_frame(pred_frame))
-            root_chunk_refs.append((horizon, np.asarray(reference, dtype=np.float32).copy()))
         elif root_process_mode == "delta_euler":
             assert gt_frame_abs is not None and state_root_abs is not None
             pred_frame = np.asarray(action_chunk[f"action.{SMPL_FRAME_KEY}"])[:horizon]
@@ -923,7 +1037,11 @@ def evaluate_single_trajectory(
         gt_action_across_time = np.concatenate(gt_trans9d_segments, axis=0)[:actual_steps]
         pred_action_across_time = np.concatenate(pred_trans9d_segments, axis=0)[:actual_steps]
         dim_labels = ROT6D_LABELS
-        title_note = "rot6d (predicted 84D [72:78] vs GT to_relative)"
+        title_note = (
+            "rot6d (predicted 84D [72:78] vs GT to_relative)"
+            if use_relative_rot6d
+            else "rot6d (predicted 84D [72:78] vs GT absolute rot6d)"
+        )
     elif root_process_mode == "delta_euler":
         state_joints_across_time = np.zeros((actual_steps, 0))
         gt_action_across_time = np.concatenate(gt_trans9d_segments, axis=0)[:actual_steps]
@@ -948,7 +1066,18 @@ def evaluate_single_trajectory(
         dim_labels = None
         title_note = ""
 
-    if ema_alpha is not None and root_process_mode != "original":
+    if rot6d_slerp_alpha is not None and root_process_mode == "rot6d":
+        title_note = (
+            f"{title_note} | rot6d SLERP-EMA alpha={rot6d_slerp_alpha}"
+        ).strip(" |")
+        logging.info(
+            "rot6d SO(3) SLERP-EMA enabled on hip dims %d:%d "
+            "(alpha=%s, spans chunks; relative: re-express refs)",
+            SMPL_HIP_ROT6D_SLICE.start,
+            SMPL_HIP_ROT6D_SLICE.stop,
+            rot6d_slerp_alpha,
+        )
+    elif ema_alpha is not None and root_process_mode != "original":
         ema_target = ema_applies_to(root_process_mode)
         title_note = (
             f"{title_note} | EMA {ema_target} alpha={ema_alpha}"
@@ -967,7 +1096,7 @@ def evaluate_single_trajectory(
         elif root_process_mode == "rot6d":
             logging.info(
                 "EMA enabled on processed SMPL frame hip rot6d dims %d:%d "
-                "(reset each inference chunk)",
+                "(reset each inference chunk; prefer --rot6d-slerp-alpha for SO(3))",
                 SMPL_HIP_ROT6D_SLICE.start,
                 SMPL_HIP_ROT6D_SLICE.stop,
             )
@@ -1130,8 +1259,14 @@ def evaluate_single_trajectory(
 
         assert gt_frame_abs is not None
         gt_quat = _hip_quat_from_absolute_frame(gt_frame_abs[:actual_steps])
+
+        def _decode_rot6d(chunk, reference):
+            return _rot6d_to_abs_quat(
+                chunk, reference, relative=use_relative_rot6d
+            )
+
         pred_quat = _reconstruct_abs_quat_from_chunks(
-            pred_action_across_time, root_chunk_refs, _rot6d_to_abs_quat
+            pred_action_across_time, root_chunk_refs, _decode_rot6d
         )
         pred_quat_plot = _align_quat_hemisphere(pred_quat, gt_quat)
         pred_err_deg = _quat_geodesic_deg(pred_quat, gt_quat)
@@ -1308,8 +1443,14 @@ class ArgsConfig:
     """EMA alpha in (0, 1]. Target depends on --root-process-mode:
     trans9d → robot_root local xyz (may span chunks);
     delta_euler → hip Δeuler [72:75] (per inference chunk);
-    rot6d → hip rot6d [72:78] (per inference chunk).
+    rot6d → hip rot6d [72:78] column-wise (prefer --rot6d-slerp-alpha).
     Ignored for original / euler."""
+
+    rot6d_slerp_alpha: float | None = None
+    """SO(3) geodesic EMA on hip rot6d, same polarity as uniJungle smoother rot alpha:
+    alpha * prev + (1-alpha) * cur (larger → smoother). Typical 0.8. Only for
+    --root-process-mode rot6d; spans chunks (relative: re-express into each chunk
+    reference to damp inference-boundary jumps); takes precedence over --ema-alpha."""
 
 
 def main(args: ArgsConfig):
@@ -1325,6 +1466,22 @@ def main(args: ArgsConfig):
 
     if args.ema_alpha is not None and not (0.0 < args.ema_alpha <= 1.0):
         raise ValueError(f"--ema-alpha must be in (0, 1], got {args.ema_alpha}")
+    if args.rot6d_slerp_alpha is not None:
+        if not (0.0 < args.rot6d_slerp_alpha <= 1.0):
+            raise ValueError(
+                f"--rot6d-slerp-alpha must be in (0, 1], got {args.rot6d_slerp_alpha}"
+            )
+        if args.root_process_mode != "rot6d":
+            logging.warning(
+                "--rot6d-slerp-alpha is only used with --root-process-mode rot6d; ignoring."
+            )
+            args.rot6d_slerp_alpha = None
+        elif args.ema_alpha is not None:
+            logging.warning(
+                "Both --ema-alpha and --rot6d-slerp-alpha set for rot6d; "
+                "using SO(3) SLERP (--rot6d-slerp-alpha) and ignoring column EMA."
+            )
+            args.ema_alpha = None
     if args.root_process_mode == "original" and args.ema_alpha is not None:
         logging.warning("--ema-alpha is ignored in --root-process-mode original.")
         args.ema_alpha = None
@@ -1337,6 +1494,12 @@ def main(args: ArgsConfig):
             "EMA alpha=%s will smooth: %s",
             args.ema_alpha,
             ema_target or "nothing (unexpected mode)",
+        )
+    if args.rot6d_slerp_alpha is not None:
+        logging.info(
+            "rot6d SLERP-EMA alpha=%s (uniJungle polarity; spans chunks; "
+            "relative refs re-expressed)",
+            args.rot6d_slerp_alpha,
         )
 
     # Download model checkpoint if it's an S3 path
@@ -1391,6 +1554,7 @@ def main(args: ArgsConfig):
         root_process_mode=args.root_process_mode,
         save_plot_path=args.save_plot_path,
         ema_alpha=args.ema_alpha,
+        rot6d_slerp_alpha=args.rot6d_slerp_alpha,
     )
     plot_dir.mkdir(parents=True, exist_ok=True)
     logging.info("Open-loop plots directory: %s", plot_dir)
@@ -1416,6 +1580,7 @@ def main(args: ArgsConfig):
             plot_dir=plot_dir,
             root_process_mode=args.root_process_mode,
             ema_alpha=args.ema_alpha,
+            rot6d_slerp_alpha=args.rot6d_slerp_alpha,
         )
         logging.info(f"MSE for trajectory {traj_id}: {mse}, MAE: {mae}")
         all_mse.append(mse)

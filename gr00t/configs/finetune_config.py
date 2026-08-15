@@ -176,14 +176,19 @@ class FinetuneConfig:
     """SMPL hip root target space: original (82D quat) | rot6d (84D) | euler | delta_euler (81D)."""
 
     action_mode: ActionMode | None = None
-    """Whether state.robot_root is the Euler reference (euler mode only).
-    rot6d / delta_euler: fixed relative. original: N/A."""
+    """absolute|relative. rot6d / euler honor this; delta_euler fixed relative; original N/A."""
 
     use_relative_euler: bool = False
     """Legacy alias; prefer ``--root-process-mode euler|delta_euler``."""
 
     use_state_euler: bool = False
     """Legacy alias; prefer ``--root-process-mode delta_euler`` or euler + action-mode."""
+
+    use_rot6d: bool = False
+    """Set from ``--root-process-mode rot6d`` in ``__post_init__``."""
+
+    use_relative_rot6d: bool = True
+    """When use_rot6d: relative=R_state^T R_act; absolute=uniJungle-style world rot6d."""
 
     smpl_root_setup: SmplRootTrainingSetup | None = None
     """Resolved in ``__post_init__``; do not set manually."""
@@ -197,6 +202,9 @@ class FinetuneConfig:
         )
         self.use_relative_euler = self.smpl_root_setup.use_relative_euler
         self.use_state_euler = self.smpl_root_setup.use_state_euler
+        self.use_rot6d = self.smpl_root_setup.use_rot6d
+        self.use_relative_rot6d = self.smpl_root_setup.use_relative_rot6d
+        self.action_mode = self.smpl_root_setup.action_mode
         if self.gradient_accumulation_steps < 1:
             raise ValueError(
                 f"gradient_accumulation_steps must be >= 1, got {self.gradient_accumulation_steps}"

@@ -65,11 +65,22 @@ def test_rot6d_mode():
     assert setup.use_state_euler is False
     assert setup.include_state_robot_root is True
     assert setup.action_mode == "relative"
+    assert setup.use_rot6d is True
+    assert setup.use_relative_rot6d is True
 
 
-def test_rot6d_rejects_absolute():
-    with pytest.raises(ValueError, match="invalid for root-process-mode=rot6d"):
-        _setup("rot6d", action_mode="absolute")
+def test_rot6d_absolute_mode():
+    setup = _setup("rot6d", action_mode="absolute")
+    assert setup.use_rot6d is True
+    assert setup.use_relative_rot6d is False
+    assert setup.include_state_robot_root is False
+    assert setup.action_mode == "absolute"
+    patched = patch_modality_configs_for_root_mode(
+        _minimal_modality_configs(),
+        UNITREE_G1_SMPL,
+        setup,
+    )
+    assert "robot_root" not in patched[UNITREE_G1_SMPL]["state"].modality_keys
 
 
 def test_delta_euler_mode():
@@ -116,8 +127,20 @@ def test_infer_mode_from_processor():
         use_state_euler=False,
         state_keys=["robot_root", "robot_qpos"],
     )
+    rot6d_proc["use_rot6d"] = True
+    rot6d_proc["use_relative_rot6d"] = True
     assert infer_root_process_mode_from_processor(rot6d_proc) == "rot6d"
     assert action_mode_from_processor(rot6d_proc) == "relative"
+
+    abs_rot6d = _saved_processor(
+        use_relative_euler=False,
+        use_state_euler=False,
+        state_keys=["robot_qpos"],
+    )
+    abs_rot6d["use_rot6d"] = True
+    abs_rot6d["use_relative_rot6d"] = False
+    assert infer_root_process_mode_from_processor(abs_rot6d) == "rot6d"
+    assert action_mode_from_processor(abs_rot6d) == "absolute"
 
     delta_proc = _saved_processor(
         use_relative_euler=True,

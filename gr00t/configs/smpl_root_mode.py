@@ -4,11 +4,12 @@
 """SMPL root training: ``--root-process-mode`` + ``--action-mode`` → processor + modality.
 
 Checkpoint ``processor_config.json`` still stores ``use_relative_euler`` /
-``use_state_euler`` and full ``modality_configs`` (resume uses both).
+``use_state_euler`` / ``use_rot6d`` / ``use_relative_rot6d`` and full
+``modality_configs`` (resume uses both).
 
 Modes:
-  original     82D hip quat absolute; state drops ``robot_root`` (no Root2Rot6d/Euler).
-  rot6d        84D hip rot6d; matrix relative R_state^T R_action; action-mode=relative only.
+  original     82D hip quat absolute; state drops ``robot_root``.
+  rot6d        84D hip rot6d; ``--action-mode`` picks absolute vs ``R_state^T R_action``.
   delta_euler  81D wrap(action_euler - state_euler); fixed relative.
   euler        81D hip euler; action-mode picks absolute vs Δeuler.
 """
@@ -33,6 +34,8 @@ VALID_ROOT_PROCESS_MODES: tuple[RootProcessMode, ...] = (
 
 PROCESSOR_FLAG_USE_RELATIVE_EULER = "use_relative_euler"
 PROCESSOR_FLAG_USE_STATE_EULER = "use_state_euler"
+PROCESSOR_FLAG_USE_ROT6D = "use_rot6d"
+PROCESSOR_FLAG_USE_RELATIVE_ROT6D = "use_relative_rot6d"
 STATE_ROOT_KEYS = frozenset({"robot_root", "robot_root_current"})
 
 
@@ -43,6 +46,8 @@ class SmplRootTrainingSetup:
     use_relative_euler: bool
     use_state_euler: bool
     include_state_robot_root: bool
+    use_rot6d: bool = False
+    use_relative_rot6d: bool = True
 
 
 def resolve_smpl_root_training(
@@ -87,20 +92,23 @@ def resolve_smpl_root_training(
             use_relative_euler=False,
             use_state_euler=False,
             include_state_robot_root=False,
+            use_rot6d=False,
+            use_relative_rot6d=False,
         )
 
     if root_process_mode == "rot6d":
-        if action_mode == "absolute":
-            raise ValueError(
-                "action-mode=absolute is invalid for root-process-mode=rot6d. "
-                "Rot6d always uses R_state^T R_action (equivalent to relative)."
-            )
+        mode = action_mode or "relative"
+        if mode not in ("absolute", "relative"):
+            raise ValueError(f"action_mode must be 'absolute' or 'relative', got {mode!r}")
         return SmplRootTrainingSetup(
             root_process_mode="rot6d",
-            action_mode="relative",
+            action_mode=mode,
             use_relative_euler=False,
             use_state_euler=False,
-            include_state_robot_root=True,
+            # Absolute rot6d (uniJungle-style) needs no state.robot_root reference.
+            include_state_robot_root=(mode == "relative"),
+            use_rot6d=True,
+            use_relative_rot6d=(mode == "relative"),
         )
 
     if root_process_mode == "delta_euler":
@@ -115,6 +123,8 @@ def resolve_smpl_root_training(
             use_relative_euler=True,
             use_state_euler=True,
             include_state_robot_root=True,
+            use_rot6d=False,
+            use_relative_rot6d=False,
         )
 
     # euler: action-mode selects absolute euler vs Δeuler (default absolute).
@@ -127,6 +137,8 @@ def resolve_smpl_root_training(
         use_relative_euler=True,
         use_state_euler=(mode == "relative"),
         include_state_robot_root=True,
+        use_rot6d=False,
+        use_relative_rot6d=False,
     )
 
 
@@ -138,6 +150,7 @@ def infer_root_process_mode_from_processor(
     """Reconstruct training mode from a saved checkpoint processor config."""
     rel = bool(processor_kwargs.get(PROCESSOR_FLAG_USE_RELATIVE_EULER, False))
     state_euler = bool(processor_kwargs.get(PROCESSOR_FLAG_USE_STATE_EULER, False))
+    use_rot6d = bool(processor_kwargs.get(PROCESSOR_FLAG_USE_ROT6D, False))
     modality = processor_kwargs.get("modality_configs", {}).get(embodiment_tag, {})
     state_keys = set(modality.get("state", {}).get("modality_keys") or [])
     has_root = bool(state_keys.intersection(STATE_ROOT_KEYS))
@@ -146,7 +159,7 @@ def infer_root_process_mode_from_processor(
         return "delta_euler"
     if rel and not state_euler:
         return "euler"
-    if not rel and has_root:
+    if use_rot6d or (not rel and has_root):
         return "rot6d"
     return "original"
 
@@ -162,10 +175,16 @@ def action_mode_from_processor(
     if root_mode == "original":
         return None
     if root_mode == "rot6d":
+        if PROCESSOR_FLAG_USE_RELATIVE_ROT6D in processor_kwargs:
+            return (
+                "relative"
+                if bool(processor_kwargs[PROCESSOR_FLAG_USE_RELATIVE_ROT6D])
+                else "absolute"
+            )
+        # Legacy rot6d checkpoints were always relative.
         return "relative"
     if root_mode == "delta_euler":
         return "relative"
-    rel = bool(processor_kwargs.get(PROCESSOR_FLAG_USE_RELATIVE_EULER, False))
     state_euler = bool(processor_kwargs.get(PROCESSOR_FLAG_USE_STATE_EULER, False))
     return "relative" if state_euler else "absolute"
 
@@ -268,6 +287,22 @@ def assert_processor_kwargs_match_setup(
             f"this run use_relative_euler={setup.use_relative_euler}, "
             f"use_state_euler={setup.use_state_euler}."
         )
+
+    if setup.use_rot6d:
+        saved_rot6d = bool(proc.get(PROCESSOR_FLAG_USE_ROT6D, False))
+        # Legacy: rot6d inferred from has_root without explicit flag.
+        if PROCESSOR_FLAG_USE_ROT6D in proc and saved_rot6d != setup.use_rot6d:
+            raise ValueError(
+                f"Resume use_rot6d mismatch vs {checkpoint_label}: "
+                f"checkpoint={saved_rot6d}, this run={setup.use_rot6d}."
+            )
+        if PROCESSOR_FLAG_USE_RELATIVE_ROT6D in proc:
+            saved_rel_r6 = bool(proc[PROCESSOR_FLAG_USE_RELATIVE_ROT6D])
+            if saved_rel_r6 != setup.use_relative_rot6d:
+                raise ValueError(
+                    f"Resume use_relative_rot6d mismatch vs {checkpoint_label}: "
+                    f"checkpoint={saved_rel_r6}, this run={setup.use_relative_rot6d}."
+                )
 
 
 def assert_resume_root_setup_matches(

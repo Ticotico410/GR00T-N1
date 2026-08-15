@@ -72,6 +72,10 @@ class Gr00tN1d7Config(PretrainedConfig):
     """If True, SMPL/WBC root uses Euler xyz instead of relative rot6D."""
     use_state_euler: bool = False
     """If True (requires use_relative_euler), learn delta(action_euler - state_euler)."""
+    use_rot6d: bool = False
+    """If True, SMPL frame hip uses rot6d (82D→84D)."""
+    use_relative_rot6d: bool = True
+    """With use_rot6d: True=R_state^T R_act; False=absolute world rot6d."""
 
     # Action head configuration parameters
     max_state_dim: int = 132  # Default from state_shape
