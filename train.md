@@ -78,7 +78,7 @@ source .venv/bin/activate
 hf auth login
 
 PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" python gr00t/eval/run_gr00t_server.py \
-    --model-path /home/karthus_chen/ycb_ws/checkpoints/GR00T_N1d7_100k_g1_smpl_euler_rel_delta_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/checkpoint-100000 \
+    --model-path /home/karthus_chen/unitree_sh_disk/tools/ycb/checkpoints/GR00T_N1d7_150k_g1_smpl_rot6d_absolute_tidy_the_bed_and_pick_cloth_on_bed_and_put_in_laundry_brainco/checkpoint-20000 \
     --embodiment-tag UNITREE_G1_SMPL \
     --device cuda:0 \
     --host 0.0.0.0 \
@@ -133,7 +133,7 @@ python -m unitree_lerobot.eval_robot.eval_g1_smpl_rot6d_brainco_gr00t_n1d7 \
   --visualization \
   --frequency 30 \
   --execute-horizon 50 \
-  --ema-alpha 0.195 \
+  --rot6d-slerp-alpha 0.8 \
   --task "Tidy up the quilt and then pick up the clothes from the bed and put them into the laundry hamper" \
   --send-real-robot
 
